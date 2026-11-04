@@ -8,8 +8,8 @@ namespace NeuroPiano
 {
     internal enum CovertCalibrationState
     {
-        Idle, Baseline, AnchorCue, AnchorSettling, Neutral, CheckNeutral, NeutralInterTrial, Cue, Settling,
-        Stimulus, CheckStimulus, Feedback, InterTrial, BlockRest, Completed
+        Idle, Baseline, AnchorCue, AnchorSettling, Neutral, NeutralInterTrial, Cue, Settling,
+        Stimulus, Feedback, InterTrial, BlockRest, Completed
     }
 
     // One fixed gaze anchor and the other seven visible keys as peripheral targets.
@@ -29,10 +29,10 @@ namespace NeuroPiano
         private readonly Random _random = new Random();
         private readonly int[] _targets = new int[7];
         private readonly long _frequency;
-        private long _deadline, _awaitedEnd;
+        private long _deadline, _neutralEnd, _stimulusEnd;
         private int _anchor, _target, _position, _round, _transitionPending;
         private int _savedActive, _savedCue, _savedBackground, _savedFeedback;
-        private bool _savedManual, _retry, _disposed;
+        private bool _savedManual, _savedPeripheralCue, _retry, _disposed;
         private volatile bool _running;
 
         [DllImport("kernel32.dll")]
@@ -87,11 +87,12 @@ namespace NeuroPiano
 
             _savedActive = _keyboard.ActiveStimulusVisibleIndex;
             _savedCue = _keyboard.AttentionCueVisibleIndex;
+            _savedPeripheralCue = _keyboard.AttentionCueIsPeripheral;
             _savedBackground = _keyboard.BackgroundCueVisibleIndex;
             _savedFeedback = _keyboard.FeedbackVisibleIndex;
             _savedManual = _keyboard.ManualInputEnabled;
             _round = _position = 0;
-            _awaitedEnd = 0;
+            _neutralEnd = _stimulusEnd = 0;
             _retry = false;
             CreateOrder();
             _keyboard.ReleaseCurrentKey();
@@ -127,38 +128,20 @@ namespace NeuroPiano
             if (handler != null) handler(reason);
         }
 
-        // A result must refer to the exact END currently awaiting validation.
+        // Validation is optional. Match the exact END of this anchor/target pair;
+        // a response for a previous pair must never reject the current target.
         public bool HandleTrialResult(long endQpc, int flags)
         {
-            if (!_running || endQpc != _awaitedEnd ||
-                (State != CovertCalibrationState.CheckNeutral &&
-                 State != CovertCalibrationState.CheckStimulus)) return false;
-            bool neutral = State == CovertCalibrationState.CheckNeutral;
-            _awaitedEnd = 0;
-            if (neutral && flags == 0)
-            {
-                long now = Now();
-                State = CovertCalibrationState.NeutralInterTrial;
-                Deadline(now, _settings.SSVEPCalibrationBackgroundInterTrialDurationMs);
-            }
-            else
-            {
-                _retry = flags != 0;
-                long now = Now();
-                if (_retry)
-                {
-                    State = CovertCalibrationState.InterTrial;
-                    Deadline(now, _settings.SSVEPCalibrationInterTrialDurationMs);
-                }
-                else
-                {
-                    _keyboard.FeedbackVisibleIndex = _target;
-                    State = CovertCalibrationState.Feedback;
-                    Deadline(now, _settings.SSVEPCalibrationFeedbackDurationMs);
-                    Action<int, long> handler = FeedbackStarted;
-                    if (handler != null) handler(_target, now);
-                }
-            }
+            if (!_running || endQpc <= 0 ||
+                (endQpc != _neutralEnd && endQpc != _stimulusEnd) ||
+                flags < 0 || (flags & ~3) != 0) return false;
+            // Returning to the anchor is allowed; HEOG must not reject its neutral epoch.
+            if (endQpc == _neutralEnd) flags &= ~2;
+            if (flags == 0) return true;
+
+            // Flags 1/2 mean detected VEOG/HEOG artifacts. Missing data (4)
+            // is not a detected artifact and cannot force a retry.
+            _retry = true;
             return true;
         }
 
@@ -167,7 +150,9 @@ namespace NeuroPiano
 
         private void EnterAnchorCue(long now)
         {
+            _neutralEnd = _stimulusEnd = 0;
             _target = _targets[_position];
+            _keyboard.AttentionCueIsPeripheral = false;
             _keyboard.AttentionCueVisibleIndex = _anchor;
             _keyboard.BackgroundCueVisibleIndex = -1;
             _keyboard.FeedbackVisibleIndex = -1;
@@ -201,19 +186,28 @@ namespace NeuroPiano
                     break;
                 case CovertCalibrationState.Neutral:
                     Send(2, NeutralClassBase, 0, transitionQpc);
-                    AwaitResult(CovertCalibrationState.CheckNeutral, transitionQpc);
+                    _neutralEnd = transitionQpc;
+                    State = CovertCalibrationState.NeutralInterTrial;
+                    Deadline(Now(), _settings.SSVEPCalibrationBackgroundInterTrialDurationMs);
                     break;
                 case CovertCalibrationState.NeutralInterTrial:
+                    if (_retry)
+                    {
+                        _retry = false;
+                        EnterAnchorCue(Now());
+                        break;
+                    }
+                    _keyboard.AttentionCueIsPeripheral = true;
                     _keyboard.AttentionCueVisibleIndex = _target;
                     long neutralPauseEnd = Now();
+                    _link.SendEvent(ServiceEventCode.State, 1, TargetClass, 0,
+                        "Covert EOG check started", neutralPauseEnd);
                     State = CovertCalibrationState.Cue;
                     Deadline(neutralPauseEnd, _settings.SSVEPCalibrationCueDurationMs);
                     break;
                 case CovertCalibrationState.Cue:
                     _keyboard.AttentionCueVisibleIndex = -1;
                     long cueOff = Now();
-                    _link.SendEvent(ServiceEventCode.State, 1, TargetClass, 0,
-                        "Covert EOG check started", cueOff);
                     State = CovertCalibrationState.Settling;
                     Deadline(cueOff, _settings.SSVEPCalibrationSettlingDurationMs);
                     break;
@@ -224,17 +218,27 @@ namespace NeuroPiano
                     break;
                 case CovertCalibrationState.Stimulus:
                     Send(2, TargetClass, TargetFrequency, transitionQpc);
-                    AwaitResult(CovertCalibrationState.CheckStimulus, transitionQpc);
-                    break;
-                case CovertCalibrationState.CheckNeutral:
-                case CovertCalibrationState.CheckStimulus:
-                    Abort("Covert calibration: no EOG validation received from PolyHub.");
+                    _stimulusEnd = transitionQpc;
+                    long stimulusEndNow = Now();
+                    State = CovertCalibrationState.Feedback;
+                    // The EEG epoch is closed: the red cue now permits looking at this note.
+                    _keyboard.AttentionCueIsPeripheral = false;
+                    _keyboard.AttentionCueVisibleIndex = _target;
+                    _keyboard.FeedbackVisibleIndex = _target;
+                    Deadline(stimulusEndNow, _settings.SSVEPCalibrationCueDurationMs);
+                    if (!_retry)
+                    {
+                        Action<int, long> feedback = FeedbackStarted;
+                        if (feedback != null) feedback(_target, stimulusEndNow);
+                    }
                     break;
                 case CovertCalibrationState.Feedback:
+                    _keyboard.AttentionCueVisibleIndex = -1;
                     State = CovertCalibrationState.InterTrial;
                     Deadline(transitionQpc, _settings.SSVEPCalibrationInterTrialDurationMs);
                     break;
                 case CovertCalibrationState.InterTrial:
+                    _neutralEnd = _stimulusEnd = 0;
                     if (!_retry)
                     {
                         _position++;
@@ -248,6 +252,10 @@ namespace NeuroPiano
                                 break;
                             }
                             CreateOrder();
+                            _keyboard.AttentionCueVisibleIndex = -1;
+                            _keyboard.BackgroundCueVisibleIndex = -1;
+                            _keyboard.FeedbackVisibleIndex = -1;
+                            _keyboard.ActiveStimulusVisibleIndex = -2;
                             State = CovertCalibrationState.BlockRest;
                             Deadline(Now(), _settings.SSVEPCalibrationBlockRestDurationMs);
                             break;
@@ -257,13 +265,6 @@ namespace NeuroPiano
                     EnterAnchorCue(Now());
                     break;
             }
-        }
-
-        private void AwaitResult(CovertCalibrationState state, long endQpc)
-        {
-            State = state;
-            _awaitedEnd = endQpc;
-            Deadline(Now(), 5000);
         }
 
         private void CreateOrder()
@@ -281,12 +282,13 @@ namespace NeuroPiano
         {
             _running = false;
             State = state;
-            _awaitedEnd = 0;
+            _neutralEnd = _stimulusEnd = 0;
             Interlocked.Exchange(ref _deadline, 0);
             _link.SendEvent(ServiceEventCode.State, 1, StartCommand, 0,
                 state == CovertCalibrationState.Completed
                     ? "Calibration 2 completed." : "Calibration 2 stopped.", now);
             _keyboard.ActiveStimulusVisibleIndex = _savedActive;
+            _keyboard.AttentionCueIsPeripheral = _savedPeripheralCue;
             _keyboard.AttentionCueVisibleIndex = _savedCue;
             _keyboard.BackgroundCueVisibleIndex = _savedBackground;
             _keyboard.FeedbackVisibleIndex = _savedFeedback;

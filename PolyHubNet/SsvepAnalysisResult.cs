@@ -17,6 +17,16 @@ namespace PolyHubNet
         public double[] Features { get; private set; }
         public double[] ClassAcceptanceMargins { get; private set; }
 
+        public long WindowStartSampleIndex { get; private set; }
+        public long WindowEndSampleIndexExclusive { get; private set; }
+
+        internal void SetWindowBounds(long startQpc, long firstSample, long endSample)
+        {
+            WindowStartQpc = startQpc;
+            WindowStartSampleIndex = firstSample;
+            WindowEndSampleIndexExclusive = endSample;
+        }
+
         public SsvepAnalysisResult(
             long qpcTimestamp,
             int? predictedClassId,

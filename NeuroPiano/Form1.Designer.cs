@@ -4,6 +4,9 @@ namespace NeuroPiano
     {
         private System.ComponentModel.IContainer components = null;
         private System.Windows.Forms.Panel pnlKeyboardHost;
+        private System.Windows.Forms.ToolTip toolTipNotes;
+        private System.Windows.Forms.ContextMenuStrip menuKeyboard;
+        private System.Windows.Forms.ToolStripMenuItem menuShowTooltips;
 
         protected override void Dispose(bool disposing)
         {
@@ -15,7 +18,12 @@ namespace NeuroPiano
 
         private void InitializeComponent()
         {
+            this.components = new System.ComponentModel.Container();
             this.pnlKeyboardHost = new System.Windows.Forms.Panel();
+            this.toolTipNotes = new System.Windows.Forms.ToolTip(this.components);
+            this.menuKeyboard = new System.Windows.Forms.ContextMenuStrip(this.components);
+            this.menuShowTooltips = new System.Windows.Forms.ToolStripMenuItem();
+            this.menuKeyboard.SuspendLayout();
             this.SuspendLayout();
             // 
             // pnlKeyboardHost
@@ -26,6 +34,26 @@ namespace NeuroPiano
             this.pnlKeyboardHost.Name = "pnlKeyboardHost";
             this.pnlKeyboardHost.Size = new System.Drawing.Size(1280, 720);
             this.pnlKeyboardHost.TabIndex = 0;
+            // 
+            // toolTipNotes
+            // 
+            this.toolTipNotes.AutoPopDelay = 3000;
+            // 
+            // menuKeyboard
+            // 
+            this.menuKeyboard.Items.AddRange(new System.Windows.Forms.ToolStripItem[] {
+            this.menuShowTooltips});
+            this.menuKeyboard.Name = "menuKeyboard";
+            this.menuKeyboard.Opening += new System.ComponentModel.CancelEventHandler(this.PianoKeyboard_HideNoteToolTip);
+            // 
+            // menuShowTooltips
+            // 
+            this.menuShowTooltips.Checked = true;
+            this.menuShowTooltips.CheckOnClick = true;
+            this.menuShowTooltips.CheckState = System.Windows.Forms.CheckState.Checked;
+            this.menuShowTooltips.Name = "menuShowTooltips";
+            this.menuShowTooltips.Text = "Show tooltips";
+            this.menuShowTooltips.CheckedChanged += new System.EventHandler(this.menuShowTooltips_CheckedChanged);
             // 
             // fmMain
             // 
@@ -40,6 +68,7 @@ namespace NeuroPiano
             this.Text = "NeuroPiano";
             this.Load += new System.EventHandler(this.fmMain_Load);
             this.FormClosing += new System.Windows.Forms.FormClosingEventHandler(this.fmMain_FormClosing);
+            this.menuKeyboard.ResumeLayout(false);
             this.ResumeLayout(false);
         }
     }

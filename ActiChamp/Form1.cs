@@ -1,4 +1,6 @@
-﻿using OpenTK.Graphics.OpenGL;
+﻿using System.Linq;
+using System.Threading.Tasks;
+using OpenTK.Graphics.OpenGL;
 using PolyHubIpc;
 using System;
 using System.Collections.Generic;
@@ -80,6 +82,10 @@ namespace ActiChamp
         private bool _timePeriodActive;
         private bool _glInitialized;
         private bool _isRunning;
+        private volatile bool _preparingRecording;
+        private volatile TaskCompletionSource<bool> _recordingResumed;
+        private long _recordingResumeStartQpc;
+        private SignalAcquisitionInfo _activeAcquisitionInfo;
         private bool _visualClockStarted;
 
         private enum DisplayRenderMode
@@ -256,6 +262,7 @@ namespace ActiChamp
 
         private void fmMain_FormClosing(object sender, FormClosingEventArgs e)
         {
+            if (_preparingRecording) { e.Cancel = true; return; }
             try
             {
                 StopAcquisitionInternal(false);
@@ -326,12 +333,24 @@ namespace ActiChamp
             if (IsDisposed || !IsHandleCreated)
                 return;
 
-            BeginInvoke((Action)(() =>
+            BeginInvoke((Action)(async () =>
             {
                 ServiceEventCode code = (ServiceEventCode)evt.Code;
 
                 try
                 {
+                    if (code == ServiceEventCode.UserEvent && evt.Value0 == SignalAcquisitionInfo.PrepareRecordingCommand)
+                    {
+                        await PrepareRecordingAsync(evt);
+                        return;
+                    }
+                    if (_preparingRecording && code == ServiceEventCode.Ping)
+                    {
+                        _serviceEventLink.SendEvent(ServiceEventCode.Ack, 1, (int)code, 0, "Preparing recording");
+                        return;
+                    }
+                    if (_preparingRecording)
+                        throw new InvalidOperationException("Recording preparation is in progress.");
                     switch (code)
                     {
                         case ServiceEventCode.Start:
@@ -523,7 +542,7 @@ namespace ActiChamp
 
         private void PublishServiceState()
         {
-            if (_serviceEventLink == null)
+            if (_serviceEventLink == null || _preparingRecording)
                 return;
 
             ActiChampRunState runState = _actiChampController.RunState;
@@ -839,6 +858,19 @@ namespace ActiChamp
 
             ServiceDataPortManifest outputManifest = GetPrimaryServiceDataOutputManifest();
 
+            var referenceNames = new List<string>();
+            foreach (DataGridViewRow row in dgvChannels.Rows)
+                if (row.Tag is int && Array.IndexOf(referencePhysicalIndices, (int)row.Tag) >= 0)
+                    referenceNames.Add(GetChannelNameFromRow(row));
+            var acquisitionInfo = new SignalAcquisitionInfo {
+                EegLowCutoffHz = lowCutoffHz, EegHighCutoffHz = highCutoffHz,
+                EogLowCutoffHz = eogLowCutoffHz, EogHighCutoffHz = eogHighCutoffHz,
+                Notch50Hz = notch50Hz, EegChannelCount = selectedEegCount, EogChannelCount = selectedEogCount,
+                ReferenceChannels = referenceNames.ToArray()
+            };
+
+            acquisitionInfo.PhysicalInputs = BuildPhysicalInputs(selectedPhysicalIndices, referencePhysicalIndices, eogPhysicalIndices);
+            _activeAcquisitionInfo = acquisitionInfo;
             ActiChampProcessingBlockRing newRing = new ActiChampProcessingBlockRing(
                     outputManifest.ServiceDataPortMapName,
                     outputManifest.ServiceDataPortReadyEventName,
@@ -846,9 +878,10 @@ namespace ActiChamp
                     samplingRate,
                     blockSize,
                     ProcessingRingBlockCount,
-                    selectedNames);
+                    selectedNames, acquisitionInfo);
 
-            newRing.UpdateRunning(true);
+            try { newRing.UpdateRunning(true); }
+            catch { newRing.Dispose(); throw; }
 
             lock (_ringSync)
             {
@@ -927,6 +960,101 @@ namespace ActiChamp
                 glCtrl.Invalidate();
         }
 
+        private PhysicalInputInfo[] BuildPhysicalInputs(int[] selected, int[] references, int[] eog)
+        {
+            var used = new HashSet<int>(selected);
+            used.UnionWith(references);
+            var inputs = new List<PhysicalInputInfo>();
+            foreach (int index in used.OrderBy(i => i))
+            {
+                DataGridViewRow row = null;
+                foreach (DataGridViewRow candidate in dgvChannels.Rows)
+                    if (candidate.Tag is int && (int)candidate.Tag == index) { row = candidate; break; }
+                if (row == null) throw new InvalidOperationException("Physical input not found.");
+                PhysicalInputRole role = PhysicalInputRole.None;
+                if (Array.IndexOf(references, index) >= 0) role |= PhysicalInputRole.Reference;
+                int eogRole = Array.IndexOf(eog, index);
+                if (eogRole >= 0) role |= (PhysicalInputRole)(4 << eogRole);
+                else if (Array.IndexOf(selected, index) >= 0) role |= PhysicalInputRole.Signal;
+                bool eeg = index < _physicalEegChannelsCount;
+                inputs.Add(new PhysicalInputInfo { Kind = eeg ? PhysicalInputKind.Eeg : PhysicalInputKind.Aux,
+                    Number = eeg ? index + 1 : index - _physicalEegChannelsCount + 1,
+                    Name = GetChannelNameFromRow(row), Role = role });
+            }
+            inputs.Add(new PhysicalInputInfo { Kind = PhysicalInputKind.Ground, Number = 0, Name = "GND" });
+            return inputs.ToArray();
+        }
+
+        private async Task PrepareRecordingAsync(ServiceEventPacket request)
+        {
+            if (_preparingRecording || !_isRunning || _processingBlockRing == null || _activeAcquisitionInfo == null)
+            {
+                _serviceEventLink.SendEvent(ServiceEventCode.Error, _isRunning ? 1 : 0,
+                    SignalAcquisitionInfo.PrepareRecordingCommand, 0, "Acquisition is unavailable or busy.", request.QpcTimestamp);
+                return;
+            }
+            _preparingRecording = true;
+            Enabled = false;
+            string error = null;
+            try
+            {
+                var info = _activeAcquisitionInfo;
+                info.ImpedanceMeasuredUtcTicks = 0;
+                foreach (var input in info.PhysicalInputs) input.ImpedanceOhm = uint.MaxValue;
+                _processingBlockRing.UpdateRunning(false);
+                _processingBlockRing.SetAcquisitionInfo(info);
+                await Task.Run(() => {
+                    try
+                    {
+                        int groundIndex = checked((int)_actiChampController.Properties.CountEeg);
+                        int[] inputIndices = info.PhysicalInputs.Where(input => input.Kind != PhysicalInputKind.Aux)
+                            .Select(input => input.Kind == PhysicalInputKind.Ground ? groundIndex : input.Number - 1).ToArray();
+                        uint[][] reads = _actiChampController.MeasureRecordingImpedances(inputIndices);
+                        foreach (var input in info.PhysicalInputs)
+                        {
+                            if (input.Kind == PhysicalInputKind.Aux) continue;
+                            int at = input.Kind == PhysicalInputKind.Ground ? reads[0].Length - 1 : input.Number - 1;
+                            input.ImpedanceOhm = SignalAcquisitionInfo.MeanImpedance(reads[0][at], reads[1][at], reads[2][at]);
+                        }
+                        info.ImpedanceMeasuredUtcTicks = DateTime.UtcNow.Ticks;
+                        _processingBlockRing.SetAcquisitionInfo(info);
+                    }
+                    catch (Exception ex) { error = ex.Message; }
+                    finally
+                    {
+                        try
+                        {
+                            var resumed = new TaskCompletionSource<bool>();
+                            _recordingResumeStartQpc = 0;
+                            _recordingResumed = resumed;
+                            _actiChampController.ResumeRecordingAcquisition();
+                            int resumeTimeoutMs = checked(15000 + (int)Math.Ceiling(
+                                (_actiChampController.WarmupBlocksToSkip + 1.0) * _actiChampController.BlockSizeSamples * 1000.0 / _samplingRate));
+                            if (_actiChampController.RunState != ActiChampRunState.Normal || !resumed.Task.Wait(resumeTimeoutMs))
+                                throw new TimeoutException("Normal EEG stream did not resume.");
+                            _processingBlockRing.UpdateRunning(true);
+                        }
+                        catch (Exception ex) { error = (error == null ? "" : error + " ") + "Restore EEG: " + ex.Message; }
+                        finally { _recordingResumed = null; }
+                    }
+                });
+            }
+            catch (Exception ex) { error = ex.Message; }
+            finally
+            {
+                _isRunning = _actiChampController.RunState == ActiChampRunState.Normal;
+                try { if (_processingBlockRing != null) _processingBlockRing.UpdateRunning(_isRunning); }
+                catch (Exception ex) { error = (error == null ? "" : error + " ") + ex.Message; }
+                _preparingRecording = false;
+                Enabled = true;
+                UpdateActiChampUiState(_actiChampController.IsInitialized, false);
+                PublishServiceState();
+            }
+            _serviceEventLink.SendEvent(error == null ? ServiceEventCode.Ack : ServiceEventCode.Error,
+                _actiChampController.RunState == ActiChampRunState.Normal ? 1 : 0,
+                SignalAcquisitionInfo.PrepareRecordingCommand, 0, error ?? "Ready to record", request.QpcTimestamp);
+        }
+
         private void DisposeProcessingRing()
         {
             lock (_ringSync)
@@ -975,6 +1103,13 @@ namespace ActiChamp
                         qpcNow);
 
                     droppedBlocks = _processingBlockRing.ReadHeader().DroppedBlockCount;
+                    var resumed = _recordingResumed;
+                    if (resumed != null)
+                    {
+                        // Keep acquisition and filters running for 10 seconds before declaring readiness.
+                        if (_recordingResumeStartQpc == 0) _recordingResumeStartQpc = qpcNow;
+                        if (qpcNow - _recordingResumeStartQpc >= 10 * _qpcFreq) resumed.TrySetResult(true);
+                    }
                 }
             }
 
@@ -1037,6 +1172,7 @@ namespace ActiChamp
 
         private void ActiChampController_StateChanged(object sender, ActiChampStateChangedEventArgs e)
         {
+            if (_preparingRecording) return;
             UpdateActiChampUiState(e.IsInitialized, e.IsRunning);
             PublishServiceState();
         }

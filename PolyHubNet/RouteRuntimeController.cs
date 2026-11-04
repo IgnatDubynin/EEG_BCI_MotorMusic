@@ -173,6 +173,15 @@ namespace PolyHubNet
             }
         }
 
+        // A connected reader is enough; do not inspect data freshness or playback.
+        public bool HasConnectedLiveViewerSource()
+        {
+            PolyHubRouteSettings route = _routeStore.FindEnabledRouteTo(_viewerNodeId, _viewerInputPinId);
+            if (route == null) return false;
+            ServiceDataOutputSlot source = FindSourceServiceOutputSlot(route.SourceNodeId, route.SourcePinId, 0);
+            return source != null && source.ServiceDataOutputReader != null;
+        }
+
         public void ApplyViewerInputRoute(bool showErrorMessage, bool viewerPlaybackMode, bool force = false)
         {
             PolyHubRouteSettings viewerRoute =

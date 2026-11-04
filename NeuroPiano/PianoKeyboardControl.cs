@@ -123,6 +123,8 @@ namespace NeuroPiano
             }
         }
 
+        public bool AttentionCueIsPeripheral { get; set; }
+
         public int AttentionCueVisibleIndex
         {
             get
@@ -359,7 +361,8 @@ namespace NeuroPiano
                 _activeStimulusVisibleIndex,
                 _attentionCueVisibleIndex,
                 _feedbackVisibleIndex,
-                _backgroundCueVisibleIndex);
+                _backgroundCueVisibleIndex,
+                AttentionCueIsPeripheral);
 
             SwapBuffers();
 

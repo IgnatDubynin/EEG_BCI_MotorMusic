@@ -67,6 +67,7 @@
     <Compile Include="ActiChampSignalFilter.cs" />
     <Compile Include="ActiChampSettings.cs" />
     <Compile Include="ActiChampWrapper.cs" />
+    <Compile Include="SignalAcquisitionInfo.cs" />
     <Compile Include="Form1.cs">
       <SubType>Form</SubType>
     </Compile>

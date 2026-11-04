@@ -19,11 +19,13 @@ namespace NeuroPiano
         private ServiceEventLink _serviceEventLink;
         private PianoAudioEngine _audioEngine;
         private PianoKeyboardControl pianoKeyboard;
+        private int _hoveredNoteMidiNumber = -1;
 
         private SSVEPStimulusEngine _ssvepStimulusEngine;
         private SSVEPCalibrationController _ssvepCalibrationController;
         private CovertCalibrationController _covertCalibrationController;
         private bool _serviceRunning = true;
+        private int _ssvepReleaseCount;
 
         public fmMain()
             : this(false)
@@ -157,12 +159,69 @@ namespace NeuroPiano
             pianoKeyboard.CenterMidiNote = _serviceProgramSettings.CenterMidiNote;
             pianoKeyboard.FirstVisibleWhiteKeyIndex = _serviceProgramSettings.FirstVisibleWhiteKeyIndex;
             pianoKeyboard.Dock = DockStyle.Fill;
+            pianoKeyboard.ContextMenuStrip = menuKeyboard;
             pianoKeyboard.NotePressed += PianoKeyboard_NotePressed;
             pianoKeyboard.NoteReleased += PianoKeyboard_NoteReleased;
+            pianoKeyboard.MouseMove += PianoKeyboard_MouseMove;
+            pianoKeyboard.MouseLeave += PianoKeyboard_HideNoteToolTip;
+            pianoKeyboard.Resize += PianoKeyboard_HideNoteToolTip;
+            pianoKeyboard.KeyDown += PianoKeyboard_HideNoteToolTip;
 
             pnlKeyboardHost.Controls.Add(pianoKeyboard);
             pianoKeyboard.BringToFront();
         }
+
+        private void PianoKeyboard_MouseMove(object sender, MouseEventArgs e)
+        {
+            if (!menuShowTooltips.Checked || menuKeyboard.Visible)
+                return;
+
+            PianoKey key = pianoKeyboard.KeyboardLayout.HitTest(e.X, e.Y);
+            int midiNumber = key != null ? key.MidiNumber : -1;
+            if (midiNumber == _hoveredNoteMidiNumber)
+                return;
+
+            PianoKeyboard_HideNoteToolTip(sender, EventArgs.Empty);
+            _hoveredNoteMidiNumber = midiNumber;
+            if (key != null)
+            {
+                string text = "Code=" + midiNumber;
+                int visibleIndex = pianoKeyboard.KeyboardLayout.WhiteKeys.IndexOf(key);
+                double[] frequencies = _serviceProgramSettings.SSVEPFrequencies;
+                if (frequencies != null && visibleIndex >= 0 && visibleIndex < frequencies.Length)
+                    text += "\nFrequency=" + frequencies[visibleIndex].ToString(
+                        System.Globalization.CultureInfo.InvariantCulture) + " Hz";
+                toolTipNotes.Show(text, pianoKeyboard,
+                    e.X + 12, e.Y + 20, toolTipNotes.AutoPopDelay);
+            }
+        }
+
+        private void PianoKeyboard_HideNoteToolTip(object sender, EventArgs e)
+        {
+            toolTipNotes.Hide(pianoKeyboard);
+            _hoveredNoteMidiNumber = -1;
+        }
+
+        private void menuShowTooltips_CheckedChanged(object sender, EventArgs e)
+        {
+            PianoKeyboard_HideNoteToolTip(sender, e);
+            toolTipNotes.Active = menuShowTooltips.Checked;
+            if (_serviceProgramSettings == null ||
+                _serviceProgramSettings.ShowNoteTooltips == menuShowTooltips.Checked)
+                return;
+
+            _serviceProgramSettings.ShowNoteTooltips = menuShowTooltips.Checked;
+            try
+            {
+                JsonFileStore.Save(GetServiceSettingsFilePath(), _serviceProgramSettings);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "Could not save settings: " + ex.Message,
+                    "NeuroPiano", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
         private void StartSSVEPCalibration()
         {
             if (!_serviceRunning ||
@@ -349,6 +408,7 @@ namespace NeuroPiano
                         break;
 
                     case ServiceEventCode.Stop:
+                        _ssvepReleaseCount = 0;
                         StopSSVEPCalibration();
                         _serviceRunning = false;
                         if (pianoKeyboard != null)
@@ -362,6 +422,7 @@ namespace NeuroPiano
                         break;
 
                     case ServiceEventCode.Reset:
+                        _ssvepReleaseCount = 0;
                         StopSSVEPCalibration();
                         if (pianoKeyboard != null)
                             pianoKeyboard.ReleaseCurrentKey();
@@ -374,7 +435,8 @@ namespace NeuroPiano
                         break;
 
                     case ServiceEventCode.Error:
-                        if (evt.Value0 == CovertCalibrationController.StartCommand &&
+                        // PolyHub flag 4 means EOG validation is unavailable, not an artifact.
+                        if (evt.Value0 == CovertCalibrationController.StartCommand && evt.Value1 != 4 &&
                             _covertCalibrationController != null && _covertCalibrationController.IsRunning)
                             _covertCalibrationController.Abort(evt.Text);
                         break;
@@ -396,6 +458,7 @@ namespace NeuroPiano
                             if (_serviceRunning && pianoKeyboard != null &&
                                 (_covertCalibrationController == null || !_covertCalibrationController.IsRunning))
                             {
+                                _ssvepReleaseCount = 0;
                                 pianoKeyboard.PressVisibleWhiteKey(
                                     evt.Value1);
                             }
@@ -404,7 +467,19 @@ namespace NeuroPiano
                                  (int)NeuroPianoUserCommand.ReleaseCurrentKey)
                         {
                             if (pianoKeyboard != null)
-                                pianoKeyboard.ReleaseCurrentKey();
+                            {
+                                if (evt.State != 0)
+                                {
+                                    // Explicit release (for example Unuse) remains immediate.
+                                    _ssvepReleaseCount = 0;
+                                    pianoKeyboard.ReleaseCurrentKey();
+                                }
+                                else if (_ssvepReleaseCount < 8 && ++_ssvepReleaseCount == 8)
+                                {
+                                    // Three consecutive classifier no-note commands confirm release.
+                                    pianoKeyboard.ReleaseCurrentKey();
+                                }
+                            }
                         }
                         else if (evt.Value0 ==
                                  (int)NeuroPianoUserCommand.EpochRejected)
@@ -706,6 +781,8 @@ namespace NeuroPiano
 
         private void ApplyServiceProgramSettingsToUi()
         {
+            menuShowTooltips.Checked = _serviceProgramSettings.ShowNoteTooltips;
+
             StartPosition = FormStartPosition.Manual;
             Left = _serviceProgramSettings.WindowLeft;
             Top = _serviceProgramSettings.WindowTop;

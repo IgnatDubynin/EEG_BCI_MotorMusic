@@ -15,6 +15,17 @@ namespace PolyHubNet
         private readonly GLControl _glCtrl;
         private readonly object _sync = new object();
         private readonly List<Tuple<long, long>> _rejectedIntervals = new List<Tuple<long, long>>();
+        private long[] _previewHeogMarkers = new long[0];
+        private long[] _playbackHeogMarkers = new long[0];
+        private Tuple<long, long, bool>[] _previewAnalysisIntervals = new Tuple<long, long, bool>[0];
+        private Tuple<long, long, bool>[] _playbackAnalysisIntervals = new Tuple<long, long, bool>[0];
+        private Tuple<long, long, HeogMarkupInterval>[] _previewHeogEpochs = new Tuple<long, long, HeogMarkupInterval>[0];
+        private Tuple<long, long, HeogMarkupInterval>[] _playbackHeogEpochs = new Tuple<long, long, HeogMarkupInterval>[0];
+        private readonly List<Tuple<Rectangle, HeogMarkupInterval>> _heogEpochLabels = new List<Tuple<Rectangle, HeogMarkupInterval>>();
+        private readonly List<int> _heogLabelRowEnds = new List<int>();
+        private int _heogLabelTexture;
+        private const int HeogLabelWidth = 26, HeogLabelHeight = 20;
+        private long _playbackMarkupSampleOffset;
 
         private readonly Action _invalidateOnUiThreadAction;
         private int _uiRefreshPending;
@@ -183,6 +194,11 @@ namespace PolyHubNet
             lock (_sync)
             {
                 _freezeTimeline = false;
+                _playbackHeogMarkers = new long[0];
+                _playbackHeogEpochs = new Tuple<long, long, HeogMarkupInterval>[0];
+                _heogEpochLabels.Clear();
+                _playbackAnalysisIntervals = new Tuple<long, long, bool>[0];
+                _playbackMarkupSampleOffset = 0;
 
                 _channelsCount = channelsCount > 0 ? channelsCount : 0;
                 _sampleRate = sampleRate > 0 ? sampleRate : 250;
@@ -202,6 +218,7 @@ namespace PolyHubNet
 
                 ClearPendingBlocks_NoLock();
                 ClearPendingEvents_NoLock();
+                ClearSignalHistory_NoLock();
                 ResetChannelSelection_NoLock();
             }
 
@@ -230,6 +247,7 @@ namespace PolyHubNet
                 if (_samplesPerChannel < 100)
                     _samplesPerChannel = 100;
 
+                RebasePlaybackMarkup_NoLock(_totalReceivedSamples);
                 _totalReceivedSamples = 0;
                 _lastDataEndQpc = 0;
                 _lastDataEndSample = 0;
@@ -239,6 +257,7 @@ namespace PolyHubNet
 
                 ClearPendingBlocks_NoLock();
                 ClearPendingEvents_NoLock();
+                ClearSignalHistory_NoLock();
             }
 
             if (_glInitialized)
@@ -257,8 +276,7 @@ namespace PolyHubNet
             {
                 _scaleVolts = scaleVolts > 0.0f ? scaleVolts : 100e-6f;
 
-                ClearPendingBlocks_NoLock();
-                ClearPendingEvents_NoLock();
+                _signalPagesNeedRedraw = true;
             }
 
             if (_glInitialized)
@@ -318,6 +336,246 @@ namespace PolyHubNet
                 AddRejectedSamples_NoLock(Math.Max(0, first), Math.Max(0, last));
             }
             RequestImmediateInvalidate();
+        }
+
+        // Gaze-shift lines use sample coordinates and do not create recording events.
+        public void SetPreviewHeogMarkers(List<long> markers)
+        {
+            lock (_sync)
+                _previewHeogMarkers = markers != null ? markers.ToArray() : new long[0];
+            RequestImmediateInvalidate();
+        }
+
+        public void SetPlaybackHeogMarkers(List<long> markers)
+        {
+            lock (_sync)
+                _playbackHeogMarkers = ShiftHeogMarkers(markers != null ? markers.ToArray() :
+                    new long[0], _playbackMarkupSampleOffset);
+            RequestImmediateInvalidate();
+        }
+
+        public void SetPreviewAnalysisIntervals(List<Tuple<long, long, bool>> intervals)
+        {
+            lock (_sync) _previewAnalysisIntervals = MergeAnalysisIntervals(intervals);
+            RequestImmediateInvalidate();
+        }
+
+        public void SetPlaybackAnalysisIntervals(List<Tuple<long, long, bool>> intervals)
+        {
+            lock (_sync) _playbackAnalysisIntervals = ShiftMarkupIntervals(MergeAnalysisIntervals(intervals), _playbackMarkupSampleOffset);
+            RequestImmediateInvalidate();
+        }
+
+        // Whole fixation spans, with a reference to the independently editable annotation.
+        public void SetPreviewHeogEpochs(List<Tuple<long, long, HeogMarkupInterval>> epochs)
+        {
+            lock (_sync)
+            {
+                _previewHeogEpochs = epochs != null ? epochs.ToArray() : new Tuple<long, long, HeogMarkupInterval>[0];
+                _previewAnalysisIntervals = EpochSpans(_previewHeogEpochs);
+                _heogEpochLabels.Clear();
+            }
+            RequestImmediateInvalidate();
+        }
+
+        public void SetPlaybackHeogEpochs(List<Tuple<long, long, HeogMarkupInterval>> epochs)
+        {
+            lock (_sync)
+            {
+                _playbackHeogEpochs = ShiftHeogEpochs(epochs != null ? epochs.ToArray() :
+                    new Tuple<long, long, HeogMarkupInterval>[0], _playbackMarkupSampleOffset);
+                _playbackAnalysisIntervals = EpochSpans(_playbackHeogEpochs);
+                _heogEpochLabels.Clear();
+            }
+            RequestImmediateInvalidate();
+        }
+
+        private static Tuple<long, long, bool>[] EpochSpans(Tuple<long, long, HeogMarkupInterval>[] epochs)
+        {
+            var spans = new List<Tuple<long, long, bool>>();
+            foreach (var epoch in epochs)
+                if (epoch.Item3.TargetLabel >= 0) spans.Add(Tuple.Create(epoch.Item1, epoch.Item2, true));
+            return MergeAnalysisIntervals(spans);
+        }
+
+        // Hit-test the same snapped sample position used for a red line in static preview.
+        private long? _timeCursorSample;
+        private string _timeCursorText;
+
+        public bool TryGetPreviewTimeSample(Point point, out long sample)
+        {
+            sample = -1;
+            var plot = GetPlotRectangle();
+            if (!_staticPageMode || !plot.Contains(point) || _pageW <= 1 || _staticPageSamplesCount <= 1) return false;
+            sample = (long)Math.Round((point.X - plot.Right + GetPreviewStaticPageX(_staticViewRightPageSample)) *
+                (_staticPageSamplesCount - 1) / (_pageW - 1.0));
+            return sample >= 0 && sample < _staticPageSamplesCount;
+        }
+
+        public void SetPreviewTimeCursor(long? sample, string text)
+        {
+            _timeCursorSample = sample;
+            _timeCursorText = text;
+            RequestImmediateInvalidate();
+        }
+
+        private void DrawTimeCursor()
+        {
+            if (!_staticPageMode || !_timeCursorSample.HasValue || string.IsNullOrEmpty(_timeCursorText)) return;
+            var plot = GetPlotRectangle();
+            float x = (float)Math.Round(GetHeogSampleScreenX(_timeCursorSample.Value, plot));
+            if (x < plot.Left || x > plot.Right) return;
+            GL.Disable(EnableCap.Texture2D);
+            GL.Color3(Color.White);
+            GL.LineWidth(1f);
+            GL.Begin(PrimitiveType.Lines);
+            GL.Vertex2(x, plot.Top); GL.Vertex2(x, plot.Bottom);
+            GL.End();
+            DrawEventLabelCore(_timeCursorText, x - 4, plot.Bottom - 20, 0, _glCtrl.Width, Color.White);
+            GL.Enable(EnableCap.Texture2D);
+        }
+
+        public bool TryGetPreviewHeogMarker(Point point, out long sample)
+        {
+            sample = -1;
+            RectangleF plot = GetPlotRectangle();
+            if (!_staticPageMode || !plot.Contains(point) || _staticPageSamplesCount <= 1 || _pageW <= 1) return false;
+            long[] markers;
+            lock (_sync) markers = _previewHeogMarkers;
+            float nearest = 5.0f;
+            foreach (long marker in markers)
+            {
+                if (marker < 0 || marker >= _staticPageSamplesCount) continue;
+                float x = (float)Math.Floor(GetHeogSampleScreenX(marker, plot)) + 0.5f;
+                float distance = Math.Abs(point.X - x);
+                if (distance <= nearest) { nearest = distance; sample = marker; }
+            }
+            return sample >= 0;
+        }
+
+        public bool TryGetHeogEpochLabel(Point point, out HeogMarkupInterval epoch, out Rectangle bounds)
+        {
+            foreach (var label in _heogEpochLabels)
+                if (label.Item1.Contains(point))
+                { epoch = label.Item2; bounds = label.Item1; return true; }
+            epoch = null;
+            bounds = Rectangle.Empty;
+            return false;
+        }
+
+        // Includes unnumbered fixations before the current start, so it can be moved earlier.
+        public bool TryGetHeogEpochAt(Point point, out HeogMarkupInterval epoch)
+        {
+            epoch = null;
+            RectangleF plot = GetPlotRectangle();
+            if (!plot.Contains(point)) return false;
+            Tuple<long, long, HeogMarkupInterval>[] epochs;
+            long availableEnd;
+            lock (_sync)
+            {
+                epochs = _staticPageMode ? _previewHeogEpochs : _playbackHeogEpochs;
+                availableEnd = _staticPageMode ? _staticPageSamplesCount : _totalReceivedSamples;
+            }
+            if ((_staticPageMode ? _staticPageSamplesCount : _samplesPerChannel) <= 1) return false;
+            float sampleWidth = (_pageW - 1.0f) /
+                (_staticPageMode ? _staticPageSamplesCount - 1 : _samplesPerChannel - 1);
+            foreach (var item in epochs)
+            {
+                long last = Math.Min(item.Item2, availableEnd);
+                if (last <= item.Item1) continue;
+                if (point.X >= GetHeogSampleScreenX(item.Item1, plot) &&
+                    point.X < GetHeogSampleScreenX(last - 1, plot) + sampleWidth)
+                { epoch = item.Item3; return true; }
+            }
+            return false;
+        }
+
+        private static Tuple<long, long, bool>[] MergeAnalysisIntervals(List<Tuple<long, long, bool>> intervals)
+        {
+            var merged = new List<Tuple<long, long, bool>>();
+            if (intervals == null) return merged.ToArray();
+            foreach (var interval in intervals)
+            {
+                if (interval.Item2 <= interval.Item1) continue;
+                if (merged.Count > 0 && interval.Item1 <= merged[merged.Count - 1].Item2)
+                {
+                    var previous = merged[merged.Count - 1];
+                    merged[merged.Count - 1] = Tuple.Create(previous.Item1, Math.Max(previous.Item2, interval.Item2), true);
+                }
+                else merged.Add(Tuple.Create(interval.Item1, interval.Item2, true));
+            }
+            return merged.ToArray();
+        }
+
+        private void DrawAnalysisIntervals(long pageSequence, float pageLeft, RectangleF plot)
+        {
+            Tuple<long, long, bool>[] intervals;
+            long availableEnd;
+            lock (_sync)
+            {
+                intervals = _staticPageMode ? _previewAnalysisIntervals : _playbackAnalysisIntervals;
+                availableEnd = _staticPageMode ? _staticPageSamplesCount : _totalReceivedSamples;
+            }
+            if (intervals.Length == 0 || pageSequence < 0) return;
+            long pageFirst = _staticPageMode ? 0 : pageSequence * _samplesPerChannel;
+            long pageEnd = Math.Min(availableEnd, pageFirst +
+                (_staticPageMode ? _staticPageSamplesCount : _samplesPerChannel));
+            if (pageEnd <= pageFirst) return;
+            bool blendWasEnabled = GL.IsEnabled(EnableCap.Blend);
+            GL.Disable(EnableCap.Texture2D);
+            GL.Enable(EnableCap.Blend);
+            GL.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
+            float sampleWidth = (_pageW - 1.0f) /
+                (_staticPageMode ? _staticPageSamplesCount - 1 : _samplesPerChannel - 1);
+            foreach (var interval in intervals)
+            {
+                if (interval.Item2 <= pageFirst) continue;
+                if (interval.Item1 >= pageEnd) break;
+                long first = Math.Max(pageFirst, interval.Item1);
+                long last = Math.Min(pageEnd, interval.Item2);
+                if (last <= first) continue;
+                float x1 = pageLeft + (_staticPageMode ? GetPreviewStaticPageX(first) : GetPageX(first));
+                float x2 = Math.Min(pageLeft + _pageW - 1.0f,
+                    pageLeft + (_staticPageMode ? GetPreviewStaticPageX(last - 1) : GetPageX(last - 1)) + sampleWidth);
+                GL.Color4(0.15f, 0.8f, 0.35f, 0.13f);
+                GL.Begin(PrimitiveType.Quads);
+                GL.Vertex2(x1, plot.Top); GL.Vertex2(x2, plot.Top);
+                GL.Vertex2(x2, plot.Bottom); GL.Vertex2(x1, plot.Bottom);
+                GL.End();
+            }
+            if (!blendWasEnabled) GL.Disable(EnableCap.Blend);
+            GL.Enable(EnableCap.Texture2D);
+        }
+
+        private void DrawHeogMarkers(long pageSequence, float pageLeft, RectangleF plot)
+        {
+            long[] markers;
+            long availableEnd;
+            lock (_sync)
+            {
+                markers = _staticPageMode ? _previewHeogMarkers : _playbackHeogMarkers;
+                availableEnd = _staticPageMode ? _staticPageSamplesCount : _totalReceivedSamples;
+            }
+            if (markers.Length == 0 || pageSequence < 0) return;
+            long pageFirst = _staticPageMode ? 0 : pageSequence * _samplesPerChannel;
+            long pageEnd = Math.Min(availableEnd, pageFirst +
+                (_staticPageMode ? _staticPageSamplesCount : _samplesPerChannel));
+            bool smoothWasEnabled = GL.IsEnabled(EnableCap.LineSmooth);
+            GL.Disable(EnableCap.LineSmooth);
+            GL.Disable(EnableCap.Texture2D);
+            GL.Color4(1.0f, 0.2f, 0.2f, 1.0f);
+            GL.Begin(PrimitiveType.Lines);
+            foreach (long sample in markers)
+            {
+                if (sample < pageFirst) continue;
+                if (sample >= pageEnd) break;
+                float x = pageLeft + (_staticPageMode ? GetPreviewStaticPageX(sample) : GetPageX(sample));
+                x = (float)Math.Floor(x) + 0.5f;
+                GL.Vertex2(x, plot.Top); GL.Vertex2(x, plot.Bottom);
+            }
+            GL.End();
+            if (smoothWasEnabled) GL.Enable(EnableCap.LineSmooth);
+            GL.Enable(EnableCap.Texture2D);
         }
 
         public void AddPreviewRejectedInterval(long first, long last)
@@ -432,6 +690,7 @@ namespace PolyHubNet
 
                 ClearPendingBlocks_NoLock();
                 ClearPendingEvents_NoLock();
+                ClearSignalHistory_NoLock();
                 NormalizeChannelSelection_NoLock();
             }
 
@@ -457,6 +716,7 @@ namespace PolyHubNet
 
                 ClearPendingBlocks_NoLock();
                 ClearPendingEvents_NoLock();
+                ClearSignalHistory_NoLock();
             }
 
             if (_glInitialized)
@@ -492,6 +752,7 @@ namespace PolyHubNet
                 _staticPageMode = true;
                 _staticPageSamplesCount = pageSamplesCount;
                 ClearPendingEvents_NoLock();
+                ClearSignalHistory_NoLock();
 
                 if (rightPageSample < 0)
                     rightPageSample = 0;
@@ -546,6 +807,17 @@ namespace PolyHubNet
         }
 
         public void DrawPreviewStaticBlock(float[] blockChannelMajor, int channelsCount, int sampleCount, long firstPageSample)
+        {
+            if (!_staticPageMode || blockChannelMajor == null || channelsCount <= 0 || sampleCount <= 0 ||
+                blockChannelMajor.Length < (long)channelsCount * sampleCount) return;
+            lock (_sync)
+            {
+                _staticSignalBlocks.Add(CopySignalBlock(blockChannelMajor, channelsCount, sampleCount, firstPageSample));
+                _signalPagesNeedRedraw = true;
+            }
+        }
+
+        private void RenderPreviewStaticBlock(float[] blockChannelMajor, int channelsCount, int sampleCount, long firstPageSample)
         {
             if (blockChannelMajor == null || blockChannelMajor.Length == 0)
                 return;
@@ -626,10 +898,11 @@ namespace PolyHubNet
             if (pageSample < 0 || pageSample >= _staticPageSamplesCount)
                 return;
 
-            float x = GetPreviewStaticPageX(pageSample);
-            DrawEventMarkerToSignalPage(0, x, classId, state);
             lock (_sync)
+            {
                 _drawnEvents.Add(new PendingEvent { AbsoluteSample = pageSample, ClassId = classId, State = state });
+                _signalPagesNeedRedraw = true;
+            }
         }
 
         private void InputStream_ChannelNamesChanged()
@@ -674,6 +947,7 @@ namespace PolyHubNet
 
                     ClearPendingBlocks_NoLock();
                     ClearPendingEvents_NoLock();
+                    ClearSignalHistory_NoLock();
                     ResetChannelSelection_NoLock();
 
                     InvalidateOverlay();
@@ -817,6 +1091,8 @@ namespace PolyHubNet
         // -------------------------------------------------
         private void glCtrl_Paint(object sender, PaintEventArgs e)
         {
+            EnsureGlInitialized();
+            if (!_glInitialized) return;
             _glCtrl.MakeCurrent();
 
             int pendingLiveTicks = Interlocked.Exchange(ref _renderTickPending, 0);
@@ -827,21 +1103,10 @@ namespace PolyHubNet
 
         private void glCtrl_Resize(object sender, EventArgs e)
         {
-            if (!_glInitialized)
-                EnsureGlInitialized();
-
-            if (!_glInitialized)
-                return;
-
-            _glCtrl.MakeCurrent();
-            SetupViewport();
-
-            RecreateSignalPages();
-            ClearPendingBlocks();
-            ClearPendingEvents();
-
+            // Paint recreates GPU pages and restores their samples/markers from
+            // the CPU cache. Never discard pending data on a viewport resize.
             InvalidateOverlay();
-            RenderFrame();
+            RequestImmediateInvalidate();
         }
 
         private void glCtrl_MouseClick(object sender, MouseEventArgs e)
@@ -854,8 +1119,6 @@ namespace PolyHubNet
             // Single click selects only from the channel-name column.
             if (e.X < 0 || e.X >= rect.Left || e.Y < rect.Top || e.Y >= rect.Bottom)
                 return;
-
-            bool layoutChanged = false;
 
             lock (_sync)
             {
@@ -878,14 +1141,12 @@ namespace PolyHubNet
                 {
                     if (GetSelectedChannelCount_NoLock() == 0)
                         _showSelectedOnly = false;
-
-                    layoutChanged = true;
                 }
 
                 RebuildVisibleChannels_NoLock();
             }
 
-            if (layoutChanged && _glInitialized)
+            if (_glInitialized)
             {
                 _glCtrl.MakeCurrent();
                 RecreateSignalPages();
@@ -901,6 +1162,10 @@ namespace PolyHubNet
                 return;
 
             RectangleF rect = GetPlotRectangle();
+
+            HeogMarkupInterval epoch;
+            Rectangle labelBounds;
+            if (TryGetHeogEpochLabel(e.Location, out epoch, out labelBounds)) return;
 
             // Double click switches the plot itself between all and selected channels.
             if (e.X < rect.Left || e.X >= rect.Right || e.Y < rect.Top || e.Y >= rect.Bottom)
@@ -954,6 +1219,7 @@ namespace PolyHubNet
             for (int i = 0; i < _pendingBlocksUi.Count; i++)
             {
                 PendingBlock block = _pendingBlocksUi[i];
+                CacheRenderedSignalBlock(block);
 
                 RenderLiveBlockToPages(
                     block.Samples,
@@ -1156,14 +1422,14 @@ namespace PolyHubNet
             if (string.IsNullOrEmpty(text))
                 return;
 
-            using (Bitmap bmp = new Bitmap(text == "Rejected" ? 72 : 40, 16, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
+            using (Bitmap bmp = new Bitmap(text == "Rejected" ? 72 : text.Length > 3 ? 112 : 40, 20, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
             using (Graphics g = Graphics.FromImage(bmp))
-            using (Font font = new Font("Segoe UI", 8.0f, FontStyle.Bold, GraphicsUnit.Point))
+            using (Font font = new Font("Consolas", 10.0f, FontStyle.Bold, GraphicsUnit.Point))
             using (Brush brush = new SolidBrush(color))
             using (StringFormat sf = new StringFormat())
             {
                 g.Clear(Color.Transparent);
-                g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.SingleBitPerPixelGridFit;
+                g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
 
                 sf.Alignment = StringAlignment.Center;
                 sf.LineAlignment = StringAlignment.Center;
@@ -1200,15 +1466,15 @@ namespace PolyHubNet
                         bmp.UnlockBits(data);
                     }
 
-                    GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.Linear);
-                    GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)TextureMagFilter.Linear);
+                    GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.Nearest);
+                    GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)TextureMagFilter.Nearest);
                     GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapS, (int)TextureWrapMode.Clamp);
                     GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapT, (int)TextureWrapMode.Clamp);
 
                     float w = bmp.Width;
                     float h = bmp.Height;
 
-                    float right = rightAnchor;
+                    float right = (float)Math.Round(rightAnchor);
                     float left = right - w;
 
                     if (left < clipLeft)
@@ -1226,6 +1492,7 @@ namespace PolyHubNet
                             left = clipLeft;
                     }
 
+                    top = (float)Math.Round(top);
                     float bottom = top + h;
 
                     GL.Enable(EnableCap.Texture2D);
@@ -1662,10 +1929,14 @@ namespace PolyHubNet
             int newPageW = GetPreviewStaticPageWidthPx(rect);
             int newPageH = Math.Max(1, (int)Math.Ceiling(rect.Height));
 
+            float oldSpan = _pageW > 1 ? _pageW - 1.0f : 1.0f;
+            float pageFraction = _pageShiftPx / oldSpan;
             DestroySignalPages();
 
             _pageW = newPageW;
             _pageH = newPageH;
+            _pageShiftPx = pageFraction * Math.Max(1.0f, _pageW - 1.0f);
+            _signalPagesNeedRedraw = true;
 
             for (int i = 0; i < 2; i++)
                 CreateSignalPage(i);
@@ -1685,6 +1956,8 @@ namespace PolyHubNet
 
         private void EnsureSignalPages()
         {
+            EnsureGlInitialized();
+            if (!_glInitialized) return;
             RectangleF rect = GetPlotRectangle();
             int w = GetCurrentPageWidthPx(rect);
             int h = Math.Max(1, (int)Math.Ceiling(rect.Height));
@@ -1696,6 +1969,7 @@ namespace PolyHubNet
 
             if (needRecreate)
                 RecreateSignalPages();
+            RedrawCachedSignalPages();
         }
 
         private void EnsurePrevPoints()
@@ -1758,6 +2032,9 @@ namespace PolyHubNet
 
             DrawSignalPages();
             DrawOverlayTexture();
+            DrawHeogMarkerOverlay();
+            DrawHeogEpochLabels();
+            DrawTimeCursor();
 
             _glCtrl.SwapBuffers();
         }
@@ -1832,6 +2109,7 @@ namespace PolyHubNet
                 float pageLeft = rect.Right - rightOffsetPx;
 
                 DrawSignalPage(0, pageLeft, rect.Top);
+                DrawAnalysisIntervals(0, pageLeft, rect);
                 DrawRejectedIntervals(0, pageLeft, rect);
             }
             else
@@ -1845,12 +2123,140 @@ namespace PolyHubNet
 
                     DrawSignalPage(_visualPageSeq - 1, previousLeft, rect.Top);
                     DrawSignalPage(_visualPageSeq, currentLeft, rect.Top);
+                    DrawAnalysisIntervals(_visualPageSeq - 1, previousLeft, rect);
+                    DrawAnalysisIntervals(_visualPageSeq, currentLeft, rect);
                     DrawRejectedIntervals(_visualPageSeq - 1, previousLeft, rect);
                     DrawRejectedIntervals(_visualPageSeq, currentLeft, rect);
                 }
             }
 
             EndPlotScissor();
+        }
+
+        // Draw gaze markers after the grid so a second tick cannot hide a red line.
+        private void DrawHeogMarkerOverlay()
+        {
+            RectangleF rect = GetPlotRectangle();
+            BeginPlotScissor(rect);
+            if (_staticPageMode)
+            {
+                float offset = _staticPageSamplesCount > 1
+                    ? (float)_staticViewRightPageSample * (_pageW - 1.0f) / (_staticPageSamplesCount - 1)
+                    : 0.0f;
+                DrawHeogMarkers(0, rect.Right - offset, rect);
+            }
+            else
+            {
+                float left = rect.Right - _pageShiftPx;
+                DrawHeogMarkers(_visualPageSeq - 1, left - (_pageW - 1.0f), rect);
+                DrawHeogMarkers(_visualPageSeq, left, rect);
+            }
+            EndPlotScissor();
+        }
+
+        private void DrawHeogEpochLabels()
+        {
+            _heogEpochLabels.Clear();
+            RectangleF plot = GetPlotRectangle();
+            Tuple<long, long, HeogMarkupInterval>[] epochs;
+            long availableEnd;
+            lock (_sync)
+            {
+                epochs = _staticPageMode ? _previewHeogEpochs : _playbackHeogEpochs;
+                availableEnd = _staticPageMode ? _staticPageSamplesCount : _totalReceivedSamples;
+            }
+            if (epochs.Length == 0 || _pageW <= 1 ||
+                (_staticPageMode ? _staticPageSamplesCount : _samplesPerChannel) <= 1 ||
+                plot.Width < HeogLabelWidth || plot.Height < HeogLabelHeight + 22) return;
+            float sampleWidth = (_pageW - 1.0f) /
+                (_staticPageMode ? _staticPageSamplesCount - 1 : _samplesPerChannel - 1);
+            _heogLabelRowEnds.Clear();
+            foreach (var epoch in epochs)
+            {
+                if (epoch.Item3.TargetLabel < 0) continue;
+                long last = Math.Min(epoch.Item2, availableEnd);
+                if (last <= epoch.Item1) continue;
+                float left = Math.Max(plot.Left, GetHeogSampleScreenX(epoch.Item1, plot));
+                float right = Math.Min(plot.Right, GetHeogSampleScreenX(last - 1, plot) + sampleWidth);
+                if (right <= left) continue;
+                int x = (int)Math.Round(Math.Max(plot.Left, Math.Min(plot.Right - HeogLabelWidth,
+                    (left + right - HeogLabelWidth) / 2)));
+                // Stagger nearby labels; the underlying fixation boundaries stay exact.
+                int row = 0;
+                while (row < _heogLabelRowEnds.Count && x < _heogLabelRowEnds[row] + 2) row++;
+                int top = (int)plot.Top + 22 + row * (HeogLabelHeight + 2);
+                if (top + HeogLabelHeight > plot.Bottom) continue;
+                if (row == _heogLabelRowEnds.Count) _heogLabelRowEnds.Add(x + HeogLabelWidth);
+                else _heogLabelRowEnds[row] = x + HeogLabelWidth;
+                var bounds = new Rectangle(x, top, HeogLabelWidth, HeogLabelHeight);
+                _heogEpochLabels.Add(Tuple.Create(bounds, epoch.Item3));
+            }
+            if (_heogEpochLabels.Count == 0) return;
+            EnsureHeogLabelTexture();
+            BeginPlotScissor(plot);
+            GL.Enable(EnableCap.Texture2D);
+            GL.BindTexture(TextureTarget.Texture2D, _heogLabelTexture);
+            GL.Color4(1f, 1f, 1f, 1f);
+            GL.Begin(PrimitiveType.Quads);
+            foreach (var label in _heogEpochLabels)
+            {
+                Rectangle box = label.Item1;
+                int number = Math.Max(0, Math.Min(HeogMarkup.MaximumTargetLabel, label.Item2.TargetLabel));
+                float u1 = number / (float)(HeogMarkup.MaximumTargetLabel + 1);
+                float u2 = (number + 1) / (float)(HeogMarkup.MaximumTargetLabel + 1);
+                GL.TexCoord2(u1, 0f); GL.Vertex2(box.Left, box.Top);
+                GL.TexCoord2(u2, 0f); GL.Vertex2(box.Right, box.Top);
+                GL.TexCoord2(u2, 1f); GL.Vertex2(box.Right, box.Bottom);
+                GL.TexCoord2(u1, 1f); GL.Vertex2(box.Left, box.Bottom);
+            }
+            GL.End();
+            GL.BindTexture(TextureTarget.Texture2D, 0);
+            EndPlotScissor();
+        }
+
+        private float GetHeogSampleScreenX(long sample, RectangleF plot)
+        {
+            if (_staticPageMode)
+                return plot.Right - GetPreviewStaticPageX(_staticViewRightPageSample) + GetPreviewStaticPageX(sample);
+            long sequence = sample / _samplesPerChannel;
+            return plot.Right - _pageShiftPx + (sequence - _visualPageSeq) * (_pageW - 1.0f) + GetPageX(sample);
+        }
+
+        // One small atlas is reused on every frame; editing a number allocates no GL resources.
+        private void EnsureHeogLabelTexture()
+        {
+            if (_heogLabelTexture != 0) return;
+            using (var bitmap = new Bitmap((HeogMarkup.MaximumTargetLabel + 1) * HeogLabelWidth, HeogLabelHeight, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
+            using (Graphics graphics = Graphics.FromImage(bitmap))
+            using (var font = new Font("Segoe UI", 8f, FontStyle.Bold))
+            using (var text = new SolidBrush(Color.FromArgb(25, 100, 50)))
+            using (var border = new Pen(Color.FromArgb(115, 175, 130)))
+            using (var format = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
+            {
+                graphics.Clear(Color.FromArgb(225, 243, 229));
+                graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
+                for (int number = 0; number <= HeogMarkup.MaximumTargetLabel; number++)
+                {
+                    var box = new Rectangle(number * HeogLabelWidth, 0, HeogLabelWidth - 1, HeogLabelHeight - 1);
+                    graphics.DrawRectangle(border, box);
+                    graphics.DrawString(number.ToString(), font, text, box, format);
+                }
+                _heogLabelTexture = GL.GenTexture();
+                GL.BindTexture(TextureTarget.Texture2D, _heogLabelTexture);
+                BitmapData data = bitmap.LockBits(new Rectangle(0, 0, bitmap.Width, bitmap.Height),
+                    ImageLockMode.ReadOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                try
+                {
+                    GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba, bitmap.Width, bitmap.Height, 0,
+                        OpenTK.Graphics.OpenGL.PixelFormat.Bgra, PixelType.UnsignedByte, data.Scan0);
+                }
+                finally { bitmap.UnlockBits(data); }
+                GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.Nearest);
+                GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)TextureMagFilter.Nearest);
+                GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapS, (int)TextureWrapMode.ClampToEdge);
+                GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapT, (int)TextureWrapMode.ClampToEdge);
+                GL.BindTexture(TextureTarget.Texture2D, 0);
+            }
         }
 
         private RectangleF GetPlotRectangle()
@@ -2089,6 +2495,8 @@ namespace PolyHubNet
                 {
                     _glCtrl.MakeCurrent();
                     GL.DeleteTexture(_overlayTextureId);
+                    if (_heogLabelTexture != 0) GL.DeleteTexture(_heogLabelTexture);
+                    _heogLabelTexture = 0;
                     _overlayTextureId = 0;
                 }
                 catch
@@ -2111,6 +2519,123 @@ namespace PolyHubNet
                 }
                 catch
                 {
+                }
+            }
+        }
+
+        // GPU pages can be destroyed by resize/context initialization. Keep their
+        // source samples so changing the viewport never requires new EEG input.
+        private readonly Queue<PendingBlock> _renderedSignalBlocks = new Queue<PendingBlock>();
+        private readonly List<PendingBlock> _staticSignalBlocks = new List<PendingBlock>();
+        private bool _signalPagesNeedRedraw = true;
+
+        private static PendingBlock CopySignalBlock(float[] data, int channels, int count,
+            long firstSample, int skip = 0)
+        {
+            int retained = count - skip;
+            var samples = new float[channels * retained];
+            for (int channel = 0; channel < channels; channel++)
+                Array.Copy(data, channel * count + skip, samples, channel * retained, retained);
+            return new PendingBlock
+            {
+                Samples = samples, ChannelsCount = channels, SamplesCount = retained,
+                FirstAbsoluteSample = firstSample + skip
+            };
+        }
+
+        private void CacheRenderedSignalBlock(PendingBlock block)
+        {
+            lock (_sync)
+            {
+                long end = block.FirstAbsoluteSample + block.SamplesCount;
+                long firstRetained = Math.Max(0, (end - 1) / _samplesPerChannel - 1) * _samplesPerChannel;
+                while (_renderedSignalBlocks.Count > 0)
+                {
+                    PendingBlock first = _renderedSignalBlocks.Peek();
+                    if (first.FirstAbsoluteSample + first.SamplesCount > firstRetained) break;
+                    _renderedSignalBlocks.Dequeue();
+                }
+                int skip = (int)Math.Max(0, firstRetained - block.FirstAbsoluteSample);
+                _renderedSignalBlocks.Enqueue(CopySignalBlock(block.Samples, block.ChannelsCount,
+                    block.SamplesCount, block.FirstAbsoluteSample, skip));
+            }
+        }
+
+        private void RebasePlaybackMarkup_NoLock(long firstSample)
+        {
+            if (firstSample <= 0) return;
+            _playbackMarkupSampleOffset += firstSample;
+            _playbackHeogMarkers = ShiftHeogMarkers(_playbackHeogMarkers, firstSample);
+            _playbackAnalysisIntervals = ShiftMarkupIntervals(_playbackAnalysisIntervals, firstSample);
+            _playbackHeogEpochs = ShiftHeogEpochs(_playbackHeogEpochs, firstSample);
+        }
+
+        private static Tuple<long, long, HeogMarkupInterval>[] ShiftHeogEpochs(
+            Tuple<long, long, HeogMarkupInterval>[] epochs, long firstSample)
+        {
+            var remaining = new List<Tuple<long, long, HeogMarkupInterval>>();
+            foreach (var epoch in epochs)
+                if (epoch.Item2 > firstSample)
+                    remaining.Add(Tuple.Create(Math.Max(0, epoch.Item1 - firstSample), epoch.Item2 - firstSample, epoch.Item3));
+            return remaining.ToArray();
+        }
+
+        private static long[] ShiftHeogMarkers(long[] markers, long firstSample)
+        {
+            var remaining = new List<long>();
+            foreach (long sample in markers)
+                if (sample >= firstSample) remaining.Add(sample - firstSample);
+            return remaining.ToArray();
+        }
+
+        private static Tuple<long, long, bool>[] ShiftMarkupIntervals(Tuple<long, long, bool>[] intervals, long firstSample)
+        {
+            var remaining = new List<Tuple<long, long, bool>>();
+            foreach (var interval in intervals)
+                if (interval.Item2 > firstSample)
+                    remaining.Add(Tuple.Create(Math.Max(0, interval.Item1 - firstSample),
+                        interval.Item2 - firstSample, interval.Item3));
+            return remaining.ToArray();
+        }
+
+        private void ClearSignalHistory_NoLock()
+        {
+            _renderedSignalBlocks.Clear();
+            _staticSignalBlocks.Clear();
+            _signalPagesNeedRedraw = true;
+        }
+
+        private void RedrawCachedSignalPages()
+        {
+            PendingBlock[] blocks;
+            PendingEvent[] events;
+            lock (_sync)
+            {
+                if (!_signalPagesNeedRedraw) return;
+                _signalPagesNeedRedraw = false;
+                blocks = _staticPageMode ? _staticSignalBlocks.ToArray() : _renderedSignalBlocks.ToArray();
+                events = _drawnEvents.ToArray();
+            }
+            ResetPrevPoints();
+            foreach (PendingBlock block in blocks)
+            {
+                if (_staticPageMode)
+                    RenderPreviewStaticBlock(block.Samples, block.ChannelsCount,
+                        block.SamplesCount, block.FirstAbsoluteSample);
+                else
+                    RenderLiveBlockToPages(block.Samples, block.ChannelsCount,
+                        block.SamplesCount, block.FirstAbsoluteSample);
+            }
+            foreach (PendingEvent marker in events)
+            {
+                if (_staticPageMode)
+                    DrawEventMarkerToSignalPage(0, GetPreviewStaticPageX(marker.AbsoluteSample), marker.ClassId, marker.State);
+                else
+                {
+                    long sequence = marker.AbsoluteSample / _samplesPerChannel;
+                    int slot = (int)(sequence & 1);
+                    if (_signalSeq[slot] == sequence)
+                        DrawEventMarkerToSignalPage(slot, GetPageX(marker.AbsoluteSample), marker.ClassId, marker.State);
                 }
             }
         }

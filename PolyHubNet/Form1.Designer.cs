@@ -29,6 +29,59 @@
         private void InitializeComponent()
         {
             this.components = new System.ComponentModel.Container();
+            this.tabSsvepAnalysisViews = new System.Windows.Forms.TabControl();
+            this.tabLiveAnalysis = new System.Windows.Forms.TabPage();
+            this.tabPerformance = new System.Windows.Forms.TabPage();
+            this.pnlPerformanceCommands = new System.Windows.Forms.FlowLayoutPanel();
+            this.pnlAcceptanceRadius = new System.Windows.Forms.FlowLayoutPanel();
+            this.pnlAcceptanceMargin = new System.Windows.Forms.FlowLayoutPanel();
+            this.pnlAcceptanceNote = new System.Windows.Forms.FlowLayoutPanel();
+            this.pnlAcceptanceSave = new System.Windows.Forms.FlowLayoutPanel();
+            this.pnlPerformanceView = new System.Windows.Forms.FlowLayoutPanel();
+            this.btnPerformanceAnalyze = new System.Windows.Forms.Button();
+            this.lblAcceptanceRadius = new System.Windows.Forms.Label();
+            this.numAcceptanceRadius = new System.Windows.Forms.NumericUpDown();
+            this.lblAcceptanceMargin = new System.Windows.Forms.Label();
+            this.numAcceptanceMargin = new System.Windows.Forms.NumericUpDown();
+            this.lblAcceptanceNote = new System.Windows.Forms.Label();
+            this.cmbAcceptanceNote = new System.Windows.Forms.ComboBox();
+            this.lblAcceptanceThreshold = new System.Windows.Forms.Label();
+            this.numAcceptanceThreshold = new System.Windows.Forms.NumericUpDown();
+            this.btnAcceptanceSave = new System.Windows.Forms.Button();
+            this.btnAcceptanceReset = new System.Windows.Forms.Button();
+            this.lblAcceptanceDirty = new System.Windows.Forms.Label();
+            this.chkPerformanceLog = new System.Windows.Forms.CheckBox();
+            this.lblPerformanceView = new System.Windows.Forms.Label();
+            this.cmbPerformanceView = new System.Windows.Forms.ComboBox();
+            this.cmbPerformanceRocMode = new System.Windows.Forms.ComboBox();
+            this.lblPerformanceSummary = new System.Windows.Forms.Label();
+            this.pnlPerformanceContent = new System.Windows.Forms.Panel();
+            this.gridPerformanceSummary = new System.Windows.Forms.DataGridView();
+            this.gridPerformanceConfusion = new System.Windows.Forms.DataGridView();
+            this.performancePlot = new System.Windows.Forms.Panel();
+            this.chkPerformanceSmooth = new System.Windows.Forms.CheckBox();
+            this.chkPerformanceShowAll = new System.Windows.Forms.CheckBox();
+            this.perfSummaryNote = new System.Windows.Forms.DataGridViewTextBoxColumn();
+            this.perfSummaryAttempts = new System.Windows.Forms.DataGridViewTextBoxColumn();
+            this.perfSummaryFirstCorrect = new System.Windows.Forms.DataGridViewTextBoxColumn();
+            this.perfSummaryFirstWrong = new System.Windows.Forms.DataGridViewTextBoxColumn();
+            this.perfSummaryNoSelection = new System.Windows.Forms.DataGridViewTextBoxColumn();
+            this.perfSummaryDetected = new System.Windows.Forms.DataGridViewTextBoxColumn();
+            this.perfSummaryLatency = new System.Windows.Forms.DataGridViewTextBoxColumn();
+            this.perfSummaryAucNotes = new System.Windows.Forms.DataGridViewTextBoxColumn();
+            this.perfSummaryAucBackground = new System.Windows.Forms.DataGridViewTextBoxColumn();
+            this.perfSummaryScored = new System.Windows.Forms.DataGridViewTextBoxColumn();
+            this.perfMatrixTarget = new System.Windows.Forms.DataGridViewTextBoxColumn();
+            this.perfMatrixNone = new System.Windows.Forms.DataGridViewTextBoxColumn();
+            this.perfMatrixNote41 = new System.Windows.Forms.DataGridViewTextBoxColumn();
+            this.perfMatrixNote43 = new System.Windows.Forms.DataGridViewTextBoxColumn();
+            this.perfMatrixNote45 = new System.Windows.Forms.DataGridViewTextBoxColumn();
+            this.perfMatrixNote47 = new System.Windows.Forms.DataGridViewTextBoxColumn();
+            this.perfMatrixNote48 = new System.Windows.Forms.DataGridViewTextBoxColumn();
+            this.perfMatrixNote50 = new System.Windows.Forms.DataGridViewTextBoxColumn();
+            this.perfMatrixNote52 = new System.Windows.Forms.DataGridViewTextBoxColumn();
+            this.perfMatrixNote53 = new System.Windows.Forms.DataGridViewTextBoxColumn();
+
             System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(fmMain));
             this.splitContainer1 = new System.Windows.Forms.SplitContainer();
             this.splitContainer2 = new System.Windows.Forms.SplitContainer();
@@ -47,6 +100,13 @@
             this.tabPageSignal = new System.Windows.Forms.TabPage();
             this.grpBxSignalViewer = new System.Windows.Forms.GroupBox();
             this.glCtrlViewer = new OpenTK.GLControl();
+            this.numHeogEpochLabel = new System.Windows.Forms.NumericUpDown();
+            this.menuHeogEpoch = new System.Windows.Forms.ContextMenuStrip(this.components);
+            this.menuHeogStartHere = new System.Windows.Forms.ToolStripMenuItem();
+            this.menuHeogAdd = new System.Windows.Forms.ToolStripMenuItem();
+            this.menuHeogDelete = new System.Windows.Forms.ToolStripMenuItem();
+            this.menuRecordingSeparator = new System.Windows.Forms.ToolStripSeparator();
+            this.menuRecordingInfo = new System.Windows.Forms.ToolStripMenuItem();
             this.label6 = new System.Windows.Forms.Label();
             this.cmbBxScaleAmpl = new System.Windows.Forms.ComboBox();
             this.label7 = new System.Windows.Forms.Label();
@@ -65,6 +125,20 @@
             this.label8 = new System.Windows.Forms.Label();
             this.label9 = new System.Windows.Forms.Label();
             this.tabPageAnalysis = new System.Windows.Forms.TabPage();
+            this.splitSsvepAnalysis = new System.Windows.Forms.SplitContainer();
+            this.splitSsvepModelDetails = new System.Windows.Forms.SplitContainer();
+            this.tblSsvepModel = new System.Windows.Forms.TableLayoutPanel();
+            this.tblSsvepModelControls = new System.Windows.Forms.TableLayoutPanel();
+            this.pnlSsvepModelButtons = new System.Windows.Forms.FlowLayoutPanel();
+            this.tblSsvepStatus = new System.Windows.Forms.TableLayoutPanel();
+            this.pnlSsvepCalibration = new System.Windows.Forms.FlowLayoutPanel();
+            this.pnlHeogMarkup = new System.Windows.Forms.TableLayoutPanel();
+            this.btnHeogMarkup = new System.Windows.Forms.Button();
+            this.lblHeogMarkupRange = new System.Windows.Forms.Label();
+            this.numHeogMarkupRange = new System.Windows.Forms.NumericUpDown();
+            this.lblHeogMarkupLegend = new System.Windows.Forms.Label();
+            this.prgHeogMarkup = new System.Windows.Forms.ToolStripProgressBar();
+            this.statusHeogMarkup = new System.Windows.Forms.ToolStripStatusLabel();
             this.grpBxAnalysis = new System.Windows.Forms.GroupBox();
             this.glCtrlAnalysis = new OpenTK.GLControl();
             this.grpBxSsvepModel = new System.Windows.Forms.GroupBox();
@@ -109,15 +183,16 @@
             this.toolStripStatusLabel1 = new System.Windows.Forms.ToolStripStatusLabel();
             this.toolStripStatusFrequency = new System.Windows.Forms.ToolStripStatusLabel();
             this.splitContainer3 = new System.Windows.Forms.SplitContainer();
-            this.menuStrip1 = new System.Windows.Forms.MenuStrip();
-            this.fileToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.trackBarPlayback = new System.Windows.Forms.TrackBar();
             this.toolStrip1 = new System.Windows.Forms.ToolStrip();
             this.tlStrpStartRecording = new System.Windows.Forms.ToolStripButton();
+            this.tlStrpRecordingIndicator = new System.Windows.Forms.ToolStripButton();
             this.tlStrpStopRecording = new System.Windows.Forms.ToolStripButton();
             this.tlStrpOpenRecording = new System.Windows.Forms.ToolStripButton();
             this.tlStrpPlayRecording = new System.Windows.Forms.ToolStripButton();
             this.tlStrpStopPlayback = new System.Windows.Forms.ToolStripButton();
+            this.tlStrpSaveAnalysis = new System.Windows.Forms.ToolStripButton();
+            this.lblAnalysisDirty = new System.Windows.Forms.ToolStripLabel();
             this.toolStripSeparator1 = new System.Windows.Forms.ToolStripSeparator();
             this.lblPlaybackTotalTime = new System.Windows.Forms.ToolStripLabel();
             this.lblPlaybackCurrentTime = new System.Windows.Forms.ToolStripLabel();
@@ -139,6 +214,26 @@
             this.tabPageTimeFreq.SuspendLayout();
             this.groupBox1.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.numUpDwnTimeFBaseInSec)).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)(this.splitSsvepAnalysis)).BeginInit();
+            this.splitSsvepAnalysis.Panel1.SuspendLayout();
+            this.splitSsvepAnalysis.Panel2.SuspendLayout();
+            this.splitSsvepAnalysis.SuspendLayout();
+            ((System.ComponentModel.ISupportInitialize)(this.splitSsvepModelDetails)).BeginInit();
+            this.splitSsvepModelDetails.Panel1.SuspendLayout();
+            this.splitSsvepModelDetails.Panel2.SuspendLayout();
+            this.splitSsvepModelDetails.SuspendLayout();
+            this.tblSsvepModel.SuspendLayout();
+            this.tblSsvepModelControls.SuspendLayout();
+            this.pnlSsvepModelButtons.SuspendLayout();
+            this.tblSsvepStatus.SuspendLayout();
+            this.pnlSsvepCalibration.SuspendLayout();
+            this.pnlHeogMarkup.SuspendLayout();
+            this.menuHeogEpoch.SuspendLayout();
+            ((System.ComponentModel.ISupportInitialize)(this.numHeogEpochLabel)).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)(this.numHeogMarkupRange)).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)(this.numAcceptanceThreshold)).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)(this.numAcceptanceMargin)).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)(this.numAcceptanceRadius)).BeginInit();
             this.tabPageAnalysis.SuspendLayout();
             this.grpBxAnalysis.SuspendLayout();
             this.grpBxSsvepModel.SuspendLayout();
@@ -156,7 +251,6 @@
             this.splitContainer3.Panel1.SuspendLayout();
             this.splitContainer3.Panel2.SuspendLayout();
             this.splitContainer3.SuspendLayout();
-            this.menuStrip1.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.trackBarPlayback)).BeginInit();
             this.toolStrip1.SuspendLayout();
             this.SuspendLayout();
@@ -355,6 +449,7 @@
             // 
             // glCtrlViewer
             // 
+            this.glCtrlViewer.Controls.Add(this.numHeogEpochLabel);
             this.glCtrlViewer.BackColor = System.Drawing.Color.Black;
             this.glCtrlViewer.Dock = System.Windows.Forms.DockStyle.Fill;
             this.glCtrlViewer.Location = new System.Drawing.Point(3, 16);
@@ -362,6 +457,51 @@
             this.glCtrlViewer.Size = new System.Drawing.Size(705, 643);
             this.glCtrlViewer.TabIndex = 1;
             this.glCtrlViewer.VSync = false;
+            this.glCtrlViewer.MouseClick += new System.Windows.Forms.MouseEventHandler(this.glCtrlViewer_HeogLabelClick);
+            this.glCtrlViewer.MouseMove += new System.Windows.Forms.MouseEventHandler(this.glCtrlViewer_HeogLabelMouseMove);
+            this.glCtrlViewer.Resize += new System.EventHandler(this.glCtrlViewer_HeogLabelResize);
+            //
+            // numHeogEpochLabel
+            //
+            this.numHeogEpochLabel.Name = "numHeogEpochLabel";
+            this.numHeogEpochLabel.AccessibleName = "Fixation target label";
+            this.numHeogEpochLabel.Location = new System.Drawing.Point(80, 32);
+            this.numHeogEpochLabel.Size = new System.Drawing.Size(56, 22);
+            this.numHeogEpochLabel.Minimum = 0M;
+            this.numHeogEpochLabel.Maximum = 53M;
+            this.numHeogEpochLabel.TextAlign = System.Windows.Forms.HorizontalAlignment.Center;
+            this.numHeogEpochLabel.Visible = false;
+            this.numHeogEpochLabel.KeyDown += new System.Windows.Forms.KeyEventHandler(this.numHeogEpochLabel_KeyDown);
+            this.numHeogEpochLabel.Leave += new System.EventHandler(this.numHeogEpochLabel_Leave);
+            //
+            // menuHeogEpoch
+            //
+            this.menuHeogEpoch.Name = "menuHeogEpoch";
+            this.menuHeogEpoch.Items.AddRange(new System.Windows.Forms.ToolStripItem[] {
+                this.menuHeogAdd, this.menuHeogDelete, this.menuHeogStartHere, this.menuRecordingSeparator, this.menuRecordingInfo });
+            //
+            // menuRecordingInfo
+            this.menuRecordingSeparator.Name = "menuRecordingSeparator";
+            this.menuRecordingInfo.Name = "menuRecordingInfo";
+            this.menuRecordingInfo.Text = "Recording info…";
+            this.menuRecordingInfo.Click += new System.EventHandler(this.menuRecordingInfo_Click);
+            // menuHeogAdd
+            //
+            this.menuHeogAdd.Name = "menuHeogAdd";
+            this.menuHeogAdd.Text = "Add";
+            this.menuHeogAdd.Click += new System.EventHandler(this.menuHeogAdd_Click);
+            //
+            // menuHeogDelete
+            //
+            this.menuHeogDelete.Name = "menuHeogDelete";
+            this.menuHeogDelete.Text = "Delete";
+            this.menuHeogDelete.Click += new System.EventHandler(this.menuHeogDelete_Click);
+            //
+            // menuHeogStartHere
+            //
+            this.menuHeogStartHere.Name = "menuHeogStartHere";
+            this.menuHeogStartHere.Text = "Start sequence here";
+            this.menuHeogStartHere.Click += new System.EventHandler(this.menuHeogStartHere_Click);
             // 
             // label6
             // 
@@ -600,9 +740,7 @@
             // 
             // tabPageAnalysis
             // 
-            this.tabPageAnalysis.Controls.Add(this.grpBxAnalysis);
-            this.tabPageAnalysis.Controls.Add(this.grpBxEogRejection);
-            this.tabPageAnalysis.Controls.Add(this.grpBxSsvepModel);
+            this.tabPageAnalysis.Controls.Add(this.splitSsvepAnalysis);
             this.tabPageAnalysis.Location = new System.Drawing.Point(4, 22);
             this.tabPageAnalysis.Name = "tabPageAnalysis";
             this.tabPageAnalysis.Padding = new System.Windows.Forms.Padding(3);
@@ -634,17 +772,8 @@
             // 
             // grpBxSsvepModel
             // 
-            this.grpBxSsvepModel.Controls.Add(this.btnSsvepCalbr1);
-            this.grpBxSsvepModel.Controls.Add(this.btnSsvepCalbr2);
-            this.grpBxSsvepModel.Controls.Add(this.rtbSsvepStatus);
-            this.grpBxSsvepModel.Controls.Add(this.prgSsvepTraining);
-            this.grpBxSsvepModel.Controls.Add(this.lblSsvepModelInfo);
-            this.grpBxSsvepModel.Controls.Add(this.lblSsvepActiveModel);
-            this.grpBxSsvepModel.Controls.Add(this.btnSsvepDelete);
-            this.grpBxSsvepModel.Controls.Add(this.btnSsvepUse);
-            this.grpBxSsvepModel.Controls.Add(this.btnSsvepTrain);
-            this.grpBxSsvepModel.Controls.Add(this.lstViewSsvepModels);
-            this.grpBxSsvepModel.Dock = System.Windows.Forms.DockStyle.Top;
+            this.grpBxSsvepModel.Controls.Add(this.splitSsvepModelDetails);
+            this.grpBxSsvepModel.Dock = System.Windows.Forms.DockStyle.Fill;
             this.grpBxSsvepModel.Location = new System.Drawing.Point(3, 3);
             this.grpBxSsvepModel.Name = "grpBxSsvepModel";
             this.grpBxSsvepModel.Size = new System.Drawing.Size(711, 194);
@@ -676,12 +805,11 @@
             // 
             // rtbSsvepStatus
             // 
-            this.rtbSsvepStatus.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left) 
-            | System.Windows.Forms.AnchorStyles.Right)));
             this.rtbSsvepStatus.BackColor = System.Drawing.SystemColors.Window;
             this.rtbSsvepStatus.DetectUrls = false;
             this.rtbSsvepStatus.Font = new System.Drawing.Font("Consolas", 8F);
             this.rtbSsvepStatus.Location = new System.Drawing.Point(382, 52);
+            this.rtbSsvepStatus.Dock = System.Windows.Forms.DockStyle.Fill;
             this.rtbSsvepStatus.Name = "rtbSsvepStatus";
             this.rtbSsvepStatus.ReadOnly = true;
             this.rtbSsvepStatus.ScrollBars = System.Windows.Forms.RichTextBoxScrollBars.Vertical;
@@ -693,6 +821,7 @@
             // prgSsvepTraining
             // 
             this.prgSsvepTraining.Location = new System.Drawing.Point(8, 164);
+            this.prgSsvepTraining.Dock = System.Windows.Forms.DockStyle.Fill;
             this.prgSsvepTraining.Name = "prgSsvepTraining";
             this.prgSsvepTraining.Size = new System.Drawing.Size(364, 18);
             this.prgSsvepTraining.TabIndex = 6;
@@ -701,6 +830,7 @@
             // 
             this.lblSsvepModelInfo.AutoEllipsis = true;
             this.lblSsvepModelInfo.Location = new System.Drawing.Point(8, 143);
+            this.lblSsvepModelInfo.Dock = System.Windows.Forms.DockStyle.Fill;
             this.lblSsvepModelInfo.Name = "lblSsvepModelInfo";
             this.lblSsvepModelInfo.Size = new System.Drawing.Size(364, 17);
             this.lblSsvepModelInfo.TabIndex = 5;
@@ -708,10 +838,9 @@
             // 
             // lblSsvepActiveModel
             // 
-            this.lblSsvepActiveModel.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left) 
-            | System.Windows.Forms.AnchorStyles.Right)));
             this.lblSsvepActiveModel.AutoEllipsis = true;
             this.lblSsvepActiveModel.Location = new System.Drawing.Point(290, 119);
+            this.lblSsvepActiveModel.Dock = System.Windows.Forms.DockStyle.Fill;
             this.lblSsvepActiveModel.Name = "lblSsvepActiveModel";
             this.lblSsvepActiveModel.Size = new System.Drawing.Size(406, 18);
             this.lblSsvepActiveModel.TabIndex = 4;
@@ -756,6 +885,7 @@
             this.lstViewSsvepModels.HideSelection = false;
             this.lstViewSsvepModels.Location = new System.Drawing.Point(8, 19);
             this.lstViewSsvepModels.MultiSelect = false;
+            this.lstViewSsvepModels.Dock = System.Windows.Forms.DockStyle.Fill;
             this.lstViewSsvepModels.Name = "lstViewSsvepModels";
             this.lstViewSsvepModels.Size = new System.Drawing.Size(275, 119);
             this.lstViewSsvepModels.TabIndex = 0;
@@ -918,6 +1048,173 @@
             this.lblHeogThreshold.Name = "lblHeogThreshold";
             this.lblHeogThreshold.TabIndex = 1;
             this.lblHeogThreshold.Text = "Threshold (µV)";
+            //
+            // splitSsvepAnalysis
+            //
+            this.splitSsvepAnalysis.Name = "splitSsvepAnalysis";
+            this.splitSsvepAnalysis.Size = new System.Drawing.Size(711, 662);
+            this.splitSsvepAnalysis.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.splitSsvepAnalysis.Orientation = System.Windows.Forms.Orientation.Horizontal;
+            this.splitSsvepAnalysis.FixedPanel = System.Windows.Forms.FixedPanel.Panel1;
+            this.splitSsvepAnalysis.SplitterWidth = 6;
+            this.splitSsvepAnalysis.SplitterDistance = 194;
+            this.splitSsvepAnalysis.Panel1MinSize = 184;
+            this.splitSsvepAnalysis.Panel2MinSize = 240;
+            this.splitSsvepAnalysis.Panel1.Controls.Add(this.grpBxSsvepModel);
+            this.splitSsvepAnalysis.Panel2.Controls.Add(this.tabSsvepAnalysisViews);
+            this.splitSsvepAnalysis.Panel2.Controls.Add(this.pnlHeogMarkup);
+            this.splitSsvepAnalysis.Panel2.Controls.Add(this.grpBxEogRejection);
+            //
+            // splitSsvepModelDetails
+            //
+            this.splitSsvepModelDetails.Name = "splitSsvepModelDetails";
+            this.splitSsvepModelDetails.Size = new System.Drawing.Size(705, 175);
+            this.splitSsvepModelDetails.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.splitSsvepModelDetails.SplitterWidth = 6;
+            this.splitSsvepModelDetails.SplitterDistance = 364;
+            this.splitSsvepModelDetails.Panel1MinSize = 260;
+            this.splitSsvepModelDetails.Panel2MinSize = 200;
+            this.splitSsvepModelDetails.FixedPanel = System.Windows.Forms.FixedPanel.Panel1;
+            this.splitSsvepModelDetails.Panel1.Controls.Add(this.tblSsvepModel);
+            this.splitSsvepModelDetails.Panel2.Controls.Add(this.tblSsvepStatus);
+            //
+            // tblSsvepModel
+            //
+            this.tblSsvepModel.Name = "tblSsvepModel";
+            this.tblSsvepModel.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.tblSsvepModel.ColumnCount = 1;
+            this.tblSsvepModel.RowCount = 4;
+            this.tblSsvepModel.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 100F));
+            this.tblSsvepModel.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 100F));
+            this.tblSsvepModel.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 20F));
+            this.tblSsvepModel.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 20F));
+            this.tblSsvepModel.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 20F));
+            this.tblSsvepModel.Controls.Add(this.tblSsvepModelControls, 0, 0);
+            this.tblSsvepModel.Controls.Add(this.lblSsvepActiveModel, 0, 1);
+            this.tblSsvepModel.Controls.Add(this.lblSsvepModelInfo, 0, 2);
+            this.tblSsvepModel.Controls.Add(this.prgSsvepTraining, 0, 3);
+            //
+            // tblSsvepModelControls
+            //
+            this.tblSsvepModelControls.Name = "tblSsvepModelControls";
+            this.tblSsvepModelControls.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.tblSsvepModelControls.ColumnCount = 2;
+            this.tblSsvepModelControls.RowCount = 1;
+            this.tblSsvepModelControls.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 100F));
+            this.tblSsvepModelControls.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Absolute, 88F));
+            this.tblSsvepModelControls.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 100F));
+            this.tblSsvepModelControls.Controls.Add(this.lstViewSsvepModels, 0, 0);
+            this.tblSsvepModelControls.Controls.Add(this.pnlSsvepModelButtons, 1, 0);
+            //
+            // pnlSsvepModelButtons
+            //
+            this.pnlSsvepModelButtons.Name = "pnlSsvepModelButtons";
+            this.pnlSsvepModelButtons.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.pnlSsvepModelButtons.FlowDirection = System.Windows.Forms.FlowDirection.TopDown;
+            this.pnlSsvepModelButtons.WrapContents = false;
+            this.pnlSsvepModelButtons.Margin = new System.Windows.Forms.Padding(0);
+            this.btnSsvepTrain.Margin = new System.Windows.Forms.Padding(3, 0, 3, 4);
+            this.pnlSsvepModelButtons.Controls.Add(this.btnSsvepTrain);
+            this.btnSsvepUse.Margin = new System.Windows.Forms.Padding(3, 0, 3, 4);
+            this.pnlSsvepModelButtons.Controls.Add(this.btnSsvepUse);
+            this.btnSsvepDelete.Margin = new System.Windows.Forms.Padding(3, 0, 3, 4);
+            this.pnlSsvepModelButtons.Controls.Add(this.btnSsvepDelete);
+            this.lblSsvepActiveModel.Margin = new System.Windows.Forms.Padding(0);
+            this.lblSsvepModelInfo.Margin = new System.Windows.Forms.Padding(0);
+            this.prgSsvepTraining.Margin = new System.Windows.Forms.Padding(0, 2, 0, 0);
+            this.lstViewSsvepModels.Margin = new System.Windows.Forms.Padding(0, 0, 3, 3);
+            //
+            // tblSsvepStatus
+            //
+            this.tblSsvepStatus.Name = "tblSsvepStatus";
+            this.tblSsvepStatus.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.tblSsvepStatus.ColumnCount = 1;
+            this.tblSsvepStatus.RowCount = 2;
+            this.tblSsvepStatus.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 100F));
+            this.tblSsvepStatus.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 33F));
+            this.tblSsvepStatus.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 100F));
+            this.tblSsvepStatus.Controls.Add(this.pnlSsvepCalibration, 0, 0);
+            this.tblSsvepStatus.Controls.Add(this.rtbSsvepStatus, 0, 1);
+            this.rtbSsvepStatus.Margin = new System.Windows.Forms.Padding(0);
+            //
+            // pnlSsvepCalibration
+            //
+            this.pnlSsvepCalibration.Name = "pnlSsvepCalibration";
+            this.pnlSsvepCalibration.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.pnlSsvepCalibration.Margin = new System.Windows.Forms.Padding(0);
+            this.pnlSsvepCalibration.Controls.Add(this.btnSsvepCalbr1);
+            this.pnlSsvepCalibration.Controls.Add(this.btnSsvepCalbr2);
+            //
+            // pnlHeogMarkup
+            //
+            this.pnlHeogMarkup.Name = "pnlHeogMarkup";
+            this.pnlHeogMarkup.Dock = System.Windows.Forms.DockStyle.Top;
+            this.pnlHeogMarkup.Height = 36;
+            this.pnlHeogMarkup.Padding = new System.Windows.Forms.Padding(5, 3, 0, 0);
+            this.pnlHeogMarkup.ColumnCount = 4;
+            this.pnlHeogMarkup.RowCount = 1;
+            this.pnlHeogMarkup.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Absolute, 114F));
+            this.pnlHeogMarkup.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Absolute, 85F));
+            this.pnlHeogMarkup.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Absolute, 84F));
+            this.pnlHeogMarkup.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 100F));
+            this.pnlHeogMarkup.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 100F));
+            this.pnlHeogMarkup.Controls.Add(this.btnHeogMarkup, 0, 0);
+            this.pnlHeogMarkup.Controls.Add(this.lblHeogMarkupRange, 1, 0);
+            this.pnlHeogMarkup.Controls.Add(this.numHeogMarkupRange, 2, 0);
+            this.pnlHeogMarkup.Controls.Add(this.lblHeogMarkupLegend, 3, 0);
+            //
+            // btnHeogMarkup
+            //
+            this.btnHeogMarkup.Name = "btnHeogMarkup";
+            this.btnHeogMarkup.Text = "Mark HEOG";
+            this.btnHeogMarkup.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.btnHeogMarkup.UseVisualStyleBackColor = true;
+            this.btnHeogMarkup.TabIndex = 0;
+            this.btnHeogMarkup.Click += new System.EventHandler(this.btnHeogMarkup_Click);
+            //
+            // lblHeogMarkupRange
+            //
+            this.lblHeogMarkupRange.Name = "lblHeogMarkupRange";
+            this.lblHeogMarkupRange.Text = "Range (µV)";
+            this.lblHeogMarkupRange.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.lblHeogMarkupRange.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
+            this.lblHeogMarkupRange.Margin = new System.Windows.Forms.Padding(8, 0, 0, 0);
+            //
+            // numHeogMarkupRange
+            //
+            this.numHeogMarkupRange.Name = "numHeogMarkupRange";
+            this.numHeogMarkupRange.Minimum = 0.1M;
+            this.numHeogMarkupRange.Maximum = 10000M;
+            this.numHeogMarkupRange.DecimalPlaces = 1;
+            this.numHeogMarkupRange.Value = 20M;
+            this.numHeogMarkupRange.Anchor = System.Windows.Forms.AnchorStyles.Left;
+            this.numHeogMarkupRange.Width = 78;
+            this.numHeogMarkupRange.TabIndex = 1;
+            this.numHeogMarkupRange.ValueChanged += new System.EventHandler(this.HeogMarkupThresholdChanged);
+            //
+            // lblHeogMarkupLegend
+            //
+            this.lblHeogMarkupLegend.Name = "lblHeogMarkupLegend";
+            this.lblHeogMarkupLegend.Text = "Green: fixation; click its number to edit";
+            this.lblHeogMarkupLegend.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.lblHeogMarkupLegend.AutoEllipsis = true;
+            this.lblHeogMarkupLegend.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
+            this.lblHeogMarkupLegend.Margin = new System.Windows.Forms.Padding(8, 0, 0, 0);
+            this.toolTipEogRejection.SetToolTip(this.lblHeogMarkupLegend, "Red: gaze shift; pale green: fixation, including short ones. Click its number to edit. Notes: 41, 43, 45, 47, 48, 50, 52, 53; squares: 9-14; 0: unassigned. Right-click a fixation to add/delete its label or choose the start.");
+            this.toolTipEogRejection.SetToolTip(this.btnHeogMarkup, "Mark HEOG fixations in the opened PHS. Start at the fixation containing the first note-on marker; label 41 to 53 and back. Verify manually. Re-marking resets labels.");
+            this.toolTipEogRejection.SetToolTip(this.numHeogMarkupRange, "Minimum rapid HEOG change after local trend removal, in microvolts. Independent of EOG rejection thresholds.");
+            //
+            // prgHeogMarkup
+            //
+            this.prgHeogMarkup.Name = "prgHeogMarkup";
+            this.prgHeogMarkup.Visible = false;
+            this.prgHeogMarkup.Width = 130;
+            //
+            // statusHeogMarkup
+            //
+            this.statusHeogMarkup.Name = "statusHeogMarkup";
+            this.statusHeogMarkup.Visible = false;
+            this.statusHeogMarkup.Text = "HEOG markup";
             // 
             // tabPageAnalysis2
             // 
@@ -1073,7 +1370,9 @@
             // 
             this.statusStripMain.Items.AddRange(new System.Windows.Forms.ToolStripItem[] {
             this.toolStripStatusLabel1,
-            this.toolStripStatusFrequency});
+            this.toolStripStatusFrequency,
+            this.statusHeogMarkup,
+            this.prgHeogMarkup});
             this.statusStripMain.Location = new System.Drawing.Point(0, 717);
             this.statusStripMain.Name = "statusStripMain";
             this.statusStripMain.Size = new System.Drawing.Size(1212, 22);
@@ -1103,41 +1402,23 @@
             // 
             // splitContainer3.Panel1
             // 
-            this.splitContainer3.Panel1.Controls.Add(this.menuStrip1);
             // 
             // splitContainer3.Panel2
             // 
             this.splitContainer3.Panel2.Controls.Add(this.trackBarPlayback);
             this.splitContainer3.Panel2.Controls.Add(this.toolStrip1);
-            this.splitContainer3.Size = new System.Drawing.Size(1212, 23);
+            this.splitContainer3.Size = new System.Drawing.Size(1212, 25);
             this.splitContainer3.SplitterDistance = 60;
+            this.splitContainer3.Panel1Collapsed = true;
             this.splitContainer3.TabIndex = 10;
-            // 
-            // menuStrip1
-            // 
-            this.menuStrip1.Items.AddRange(new System.Windows.Forms.ToolStripItem[] {
-            this.fileToolStripMenuItem});
-            this.menuStrip1.LayoutStyle = System.Windows.Forms.ToolStripLayoutStyle.HorizontalStackWithOverflow;
-            this.menuStrip1.Location = new System.Drawing.Point(0, 0);
-            this.menuStrip1.Name = "menuStrip1";
-            this.menuStrip1.Size = new System.Drawing.Size(60, 24);
-            this.menuStrip1.TabIndex = 9;
-            this.menuStrip1.Text = "menuStrip1";
-            // 
-            // fileToolStripMenuItem
-            // 
-            this.fileToolStripMenuItem.Name = "fileToolStripMenuItem";
-            this.fileToolStripMenuItem.Size = new System.Drawing.Size(37, 20);
-            this.fileToolStripMenuItem.Text = "File";
             // 
             // trackBarPlayback
             // 
-            this.trackBarPlayback.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left) 
-            | System.Windows.Forms.AnchorStyles.Right)));
+            this.trackBarPlayback.Dock = System.Windows.Forms.DockStyle.Fill;
             this.trackBarPlayback.AutoSize = false;
-            this.trackBarPlayback.Location = new System.Drawing.Point(426, 0);
+            this.trackBarPlayback.Location = new System.Drawing.Point(480, 0);
             this.trackBarPlayback.Name = "trackBarPlayback";
-            this.trackBarPlayback.Size = new System.Drawing.Size(722, 29);
+            this.trackBarPlayback.Size = new System.Drawing.Size(732, 29);
             this.trackBarPlayback.TabIndex = 11;
             this.trackBarPlayback.TickStyle = System.Windows.Forms.TickStyle.None;
             // 
@@ -1145,16 +1426,21 @@
             // 
             this.toolStrip1.Items.AddRange(new System.Windows.Forms.ToolStripItem[] {
             this.tlStrpStartRecording,
+            this.tlStrpRecordingIndicator,
             this.tlStrpStopRecording,
             this.tlStrpOpenRecording,
+            this.tlStrpSaveAnalysis,
+            this.lblAnalysisDirty,
             this.tlStrpPlayRecording,
             this.tlStrpStopPlayback,
             this.toolStripSeparator1,
             this.lblPlaybackTotalTime,
             this.lblPlaybackCurrentTime});
+            this.toolStrip1.Dock = System.Windows.Forms.DockStyle.Left;
+            this.toolStrip1.LayoutStyle = System.Windows.Forms.ToolStripLayoutStyle.HorizontalStackWithOverflow;
             this.toolStrip1.Location = new System.Drawing.Point(0, 0);
             this.toolStrip1.Name = "toolStrip1";
-            this.toolStrip1.Size = new System.Drawing.Size(1148, 25);
+            this.toolStrip1.Size = new System.Drawing.Size(1212, 25);
             this.toolStrip1.TabIndex = 10;
             this.toolStrip1.Text = "toolStrip1";
             // 
@@ -1168,9 +1454,23 @@
             this.tlStrpStartRecording.Text = "StartRec";
             this.tlStrpStartRecording.Click += new System.EventHandler(this.tlStrpStartRecording_Click);
             // 
+            // tlStrpRecordingIndicator
+            // 
+            this.tlStrpRecordingIndicator.AutoSize = false;
+            this.tlStrpRecordingIndicator.DisplayStyle = System.Windows.Forms.ToolStripItemDisplayStyle.Image;
+            this.tlStrpRecordingIndicator.Enabled = false;
+            this.tlStrpRecordingIndicator.Image = ((System.Drawing.Image)(resources.GetObject("tlStrpRecordingIndicator.Image")));
+            this.tlStrpRecordingIndicator.ImageScaling = System.Windows.Forms.ToolStripItemImageScaling.None;
+            this.tlStrpRecordingIndicator.Margin = new System.Windows.Forms.Padding(0);
+            this.tlStrpRecordingIndicator.Name = "tlStrpRecordingIndicator";
+            this.tlStrpRecordingIndicator.Size = new System.Drawing.Size(24, 24);
+            this.tlStrpRecordingIndicator.Text = "Recording";
+            this.tlStrpRecordingIndicator.ToolTipText = "Not recording";
+            // 
             // tlStrpStopRecording
             // 
             this.tlStrpStopRecording.DisplayStyle = System.Windows.Forms.ToolStripItemDisplayStyle.Text;
+            this.tlStrpStopRecording.Enabled = false;
             this.tlStrpStopRecording.Image = ((System.Drawing.Image)(resources.GetObject("tlStrpStopRecording.Image")));
             this.tlStrpStopRecording.ImageTransparentColor = System.Drawing.Color.Magenta;
             this.tlStrpStopRecording.Name = "tlStrpStopRecording";
@@ -1191,6 +1491,7 @@
             // tlStrpPlayRecording
             // 
             this.tlStrpPlayRecording.DisplayStyle = System.Windows.Forms.ToolStripItemDisplayStyle.Text;
+            this.tlStrpPlayRecording.Enabled = false;
             this.tlStrpPlayRecording.Image = ((System.Drawing.Image)(resources.GetObject("tlStrpPlayRecording.Image")));
             this.tlStrpPlayRecording.ImageTransparentColor = System.Drawing.Color.Magenta;
             this.tlStrpPlayRecording.Name = "tlStrpPlayRecording";
@@ -1201,6 +1502,7 @@
             // tlStrpStopPlayback
             // 
             this.tlStrpStopPlayback.DisplayStyle = System.Windows.Forms.ToolStripItemDisplayStyle.Text;
+            this.tlStrpStopPlayback.Enabled = false;
             this.tlStrpStopPlayback.Image = ((System.Drawing.Image)(resources.GetObject("tlStrpStopPlayback.Image")));
             this.tlStrpStopPlayback.ImageTransparentColor = System.Drawing.Color.Magenta;
             this.tlStrpStopPlayback.Name = "tlStrpStopPlayback";
@@ -1208,6 +1510,27 @@
             this.tlStrpStopPlayback.Text = "StopPlay";
             this.tlStrpStopPlayback.Click += new System.EventHandler(this.tlStrpStopPlayback_Click);
             // 
+            // tlStrpSaveAnalysis
+            //
+            this.tlStrpSaveAnalysis.Name = "tlStrpSaveAnalysis";
+            this.tlStrpSaveAnalysis.DisplayStyle = System.Windows.Forms.ToolStripItemDisplayStyle.Text;
+            this.tlStrpSaveAnalysis.Text = "Save";
+            this.tlStrpSaveAnalysis.Enabled = false;
+            this.tlStrpSaveAnalysis.Size = new System.Drawing.Size(36, 22);
+            this.tlStrpSaveAnalysis.ToolTipText = "Save annotations and HEOG settings";
+            this.tlStrpSaveAnalysis.Click += new System.EventHandler(this.tlStrpSaveAnalysis_Click);
+            //
+            // lblAnalysisDirty
+            //
+            this.lblAnalysisDirty.Name = "lblAnalysisDirty";
+            this.lblAnalysisDirty.AutoSize = false;
+            this.lblAnalysisDirty.Size = new System.Drawing.Size(12, 22);
+            this.lblAnalysisDirty.Text = "●";
+            this.lblAnalysisDirty.ForeColor = System.Drawing.Color.DarkOrange;
+            this.lblAnalysisDirty.Visible = false;
+            this.lblAnalysisDirty.ToolTipText = "Unsaved annotation changes";
+            this.lblAnalysisDirty.AccessibleName = "Unsaved annotation changes";
+            //
             // toolStripSeparator1
             // 
             this.toolStripSeparator1.Name = "toolStripSeparator1";
@@ -1238,6 +1561,321 @@
             this.Text = "PolyHubNET";
             this.FormClosing += new System.Windows.Forms.FormClosingEventHandler(this.fmMain_FormClosing);
             this.Load += new System.EventHandler(this.fmMain_Load);
+            // Analysis views: existing viewer and offline performance share the same lower area.
+            this.tabSsvepAnalysisViews.Name = "tabSsvepAnalysisViews";
+            this.tabSsvepAnalysisViews.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.tabSsvepAnalysisViews.Controls.Add(this.tabLiveAnalysis);
+            this.tabSsvepAnalysisViews.Controls.Add(this.tabPerformance);
+            this.tabLiveAnalysis.Name = "tabLiveAnalysis";
+            this.tabLiveAnalysis.Text = "Analysis Viewer";
+            this.tabLiveAnalysis.Padding = new System.Windows.Forms.Padding(3);
+            this.tabLiveAnalysis.UseVisualStyleBackColor = true;
+            this.tabLiveAnalysis.Controls.Add(this.grpBxAnalysis);
+            this.tabPerformance.Name = "tabPerformance";
+            this.tabPerformance.Text = "Performance";
+            this.tabPerformance.Padding = new System.Windows.Forms.Padding(3);
+            this.tabPerformance.UseVisualStyleBackColor = true;
+            this.tabPerformance.Controls.Add(this.pnlPerformanceContent);
+            this.tabPerformance.Controls.Add(this.lblPerformanceSummary);
+            this.tabPerformance.Controls.Add(this.pnlPerformanceCommands);
+            this.pnlPerformanceCommands.Name = "pnlPerformanceCommands";
+            this.pnlPerformanceCommands.Dock = System.Windows.Forms.DockStyle.Top;
+            this.pnlPerformanceCommands.Height = 34;
+            this.pnlPerformanceCommands.WrapContents = true;
+            this.pnlPerformanceCommands.AutoSize = true;
+            this.pnlPerformanceCommands.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
+            this.pnlPerformanceCommands.MinimumSize = new System.Drawing.Size(0, 34);
+            this.btnPerformanceAnalyze.Name = "btnPerformanceAnalyze";
+            this.btnPerformanceAnalyze.Text = "Analyze";
+            this.btnPerformanceAnalyze.Size = new System.Drawing.Size(82, 27);
+            this.btnPerformanceAnalyze.UseVisualStyleBackColor = true;
+            this.btnPerformanceAnalyze.Click += new System.EventHandler(this.btnPerformanceAnalyze_Click);
+            this.lblAcceptanceRadius.Name = "lblAcceptanceRadius";
+            this.lblAcceptanceRadius.Text = "Radius ×";
+            this.lblAcceptanceRadius.AutoSize = true;
+            this.lblAcceptanceRadius.Margin = new System.Windows.Forms.Padding(8, 8, 3, 0);
+            this.lblAcceptanceMargin.Name = "lblAcceptanceMargin";
+            this.lblAcceptanceMargin.Text = "BG margin";
+            this.lblAcceptanceMargin.AutoSize = true;
+            this.lblAcceptanceMargin.Margin = new System.Windows.Forms.Padding(8, 8, 3, 0);
+            this.lblAcceptanceNote.Name = "lblAcceptanceNote";
+            this.lblAcceptanceNote.Text = "Note";
+            this.lblAcceptanceNote.AutoSize = true;
+            this.lblAcceptanceNote.Margin = new System.Windows.Forms.Padding(8, 8, 3, 0);
+            this.lblAcceptanceThreshold.Name = "lblAcceptanceThreshold";
+            this.lblAcceptanceThreshold.Text = "BG threshold";
+            this.lblAcceptanceThreshold.AutoSize = true;
+            this.lblAcceptanceThreshold.Margin = new System.Windows.Forms.Padding(8, 8, 3, 0);
+            this.lblAcceptanceDirty.Name = "lblAcceptanceDirty";
+            this.lblAcceptanceDirty.Text = "*";
+            this.lblAcceptanceDirty.AutoSize = true;
+            this.lblAcceptanceDirty.Margin = new System.Windows.Forms.Padding(8, 8, 3, 0);
+            this.numAcceptanceRadius.Name = "numAcceptanceRadius";
+            this.numAcceptanceRadius.DecimalPlaces = 3;
+            this.numAcceptanceRadius.Increment = 0.05m;
+            this.numAcceptanceRadius.Minimum = 0.001m;
+            this.numAcceptanceRadius.Maximum = 100m;
+            this.numAcceptanceRadius.Value = 1m;
+            this.numAcceptanceRadius.Width = 70;
+            this.numAcceptanceRadius.Margin = new System.Windows.Forms.Padding(3, 5, 3, 3);
+            this.numAcceptanceRadius.Enabled = false;
+            this.numAcceptanceRadius.ValueChanged += new System.EventHandler(this.AcceptanceValueChanged);
+            this.numAcceptanceMargin.Name = "numAcceptanceMargin";
+            this.numAcceptanceMargin.DecimalPlaces = 3;
+            this.numAcceptanceMargin.Increment = 0.05m;
+            this.numAcceptanceMargin.Minimum = -1000m;
+            this.numAcceptanceMargin.Maximum = 1000m;
+            this.numAcceptanceMargin.Value = 0.5m;
+            this.numAcceptanceMargin.Width = 75;
+            this.numAcceptanceMargin.Margin = new System.Windows.Forms.Padding(3, 5, 3, 3);
+            this.numAcceptanceMargin.Enabled = false;
+            this.numAcceptanceMargin.ValueChanged += new System.EventHandler(this.AcceptanceValueChanged);
+            this.numAcceptanceThreshold.Name = "numAcceptanceThreshold";
+            this.numAcceptanceThreshold.DecimalPlaces = 6;
+            this.numAcceptanceThreshold.Increment = 0.05m;
+            this.numAcceptanceThreshold.Minimum = -1000m;
+            this.numAcceptanceThreshold.Maximum = 1000m;
+            this.numAcceptanceThreshold.Value = 0m;
+            this.numAcceptanceThreshold.Width = 100;
+            this.numAcceptanceThreshold.Margin = new System.Windows.Forms.Padding(3, 5, 3, 3);
+            this.numAcceptanceThreshold.Enabled = false;
+            this.numAcceptanceThreshold.ValueChanged += new System.EventHandler(this.AcceptanceValueChanged);
+            this.cmbAcceptanceNote.Name = "cmbAcceptanceNote";
+            this.cmbAcceptanceNote.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+            this.cmbAcceptanceNote.Width = 52;
+            this.cmbAcceptanceNote.Margin = new System.Windows.Forms.Padding(3, 5, 3, 3);
+            this.cmbAcceptanceNote.Enabled = false;
+            this.cmbAcceptanceNote.SelectedIndexChanged += new System.EventHandler(this.AcceptanceNoteChanged);
+            this.btnAcceptanceSave.Name = "btnAcceptanceSave";
+            this.btnAcceptanceSave.Text = "Save";
+            this.btnAcceptanceSave.Size = new System.Drawing.Size(55, 27);
+            this.btnAcceptanceSave.UseVisualStyleBackColor = true;
+            this.btnAcceptanceSave.Enabled = false;
+            this.btnAcceptanceSave.Click += new System.EventHandler(this.btnAcceptanceSave_Click);
+            this.btnAcceptanceReset.Name = "btnAcceptanceReset";
+            this.btnAcceptanceReset.Text = "Reset";
+            this.btnAcceptanceReset.Size = new System.Drawing.Size(55, 27);
+            this.btnAcceptanceReset.UseVisualStyleBackColor = true;
+            this.btnAcceptanceReset.Enabled = false;
+            this.btnAcceptanceReset.Click += new System.EventHandler(this.btnAcceptanceReset_Click);
+            this.lblAcceptanceDirty.ForeColor = System.Drawing.Color.DarkOrange;
+            this.lblAcceptanceDirty.Visible = false;
+            this.toolTipEogRejection.SetToolTip(this.numAcceptanceRadius, "Radius multiplier r: larger values allow greater deviation from calibration examples. Applies to the active decoder and the next Analyze run.");
+            this.toolTipEogRejection.SetToolTip(this.numAcceptanceMargin, "Global background margin M. Effective threshold for note j is Tj + M. Larger values reject more windows for all notes.");
+            this.toolTipEogRejection.SetToolTip(this.numAcceptanceThreshold, "Individual background threshold Tj for the selected note. Effective threshold is Tj + M. Larger values reject more windows for this note only.");
+            this.toolTipEogRejection.SetToolTip(this.cmbAcceptanceNote, "Select the note whose individual background threshold is shown. Selecting a note does not change settings.");
+            this.toolTipEogRejection.SetToolTip(this.btnAcceptanceSave, "Save current acceptance settings to the active model JSON.");
+            this.toolTipEogRejection.SetToolTip(this.btnAcceptanceReset, "Restore all acceptance settings loaded when this model was activated. The model file changes only when you press Save.");
+            this.toolTipEogRejection.SetToolTip(this.lblAcceptanceDirty, "Unsaved model settings.");
+            this.chkPerformanceLog.Name = "chkPerformanceLog";
+            this.chkPerformanceLog.Text = "Log";
+            this.chkPerformanceLog.AutoSize = true;
+            this.chkPerformanceLog.Margin = new System.Windows.Forms.Padding(8, 7, 8, 3);
+            this.lblPerformanceView.Name = "lblPerformanceView";
+            this.lblPerformanceView.Text = "View";
+            this.lblPerformanceView.AutoSize = true;
+            this.lblPerformanceView.Margin = new System.Windows.Forms.Padding(3, 8, 3, 0);
+            this.cmbPerformanceView.Name = "cmbPerformanceView";
+            this.cmbPerformanceView.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+            this.cmbPerformanceView.Width = 115;
+            this.cmbPerformanceView.Margin = new System.Windows.Forms.Padding(3, 5, 3, 3);
+            this.cmbPerformanceView.Items.AddRange(new object[] { "Summary", "Confusion", "ROC", "Timeline" });
+            this.cmbPerformanceView.SelectedIndexChanged += new System.EventHandler(this.PerformanceViewChanged);
+            this.cmbPerformanceRocMode.Name = "cmbPerformanceRocMode";
+            this.cmbPerformanceRocMode.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+            this.cmbPerformanceRocMode.Width = 130;
+            this.cmbPerformanceRocMode.Margin = new System.Windows.Forms.Padding(3, 5, 3, 3);
+            this.cmbPerformanceRocMode.Items.AddRange(new object[] { "Other notes", "Background" });
+            this.cmbPerformanceRocMode.Visible = false;
+            this.cmbPerformanceRocMode.SelectedIndexChanged += new System.EventHandler(this.PerformanceViewChanged);
+            this.pnlAcceptanceRadius.Name = "pnlAcceptanceRadius";
+            this.pnlAcceptanceRadius.AutoSize = true;
+            this.pnlAcceptanceRadius.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
+            this.pnlAcceptanceRadius.WrapContents = false;
+            this.pnlAcceptanceRadius.Margin = new System.Windows.Forms.Padding(0);
+            this.pnlAcceptanceRadius.Controls.Add(this.lblAcceptanceRadius);
+            this.pnlAcceptanceRadius.Controls.Add(this.numAcceptanceRadius);
+            this.pnlAcceptanceMargin.Name = "pnlAcceptanceMargin";
+            this.pnlAcceptanceMargin.AutoSize = true;
+            this.pnlAcceptanceMargin.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
+            this.pnlAcceptanceMargin.WrapContents = false;
+            this.pnlAcceptanceMargin.Margin = new System.Windows.Forms.Padding(0);
+            this.pnlAcceptanceMargin.Controls.Add(this.lblAcceptanceMargin);
+            this.pnlAcceptanceMargin.Controls.Add(this.numAcceptanceMargin);
+            this.pnlAcceptanceNote.Name = "pnlAcceptanceNote";
+            this.pnlAcceptanceNote.AutoSize = true;
+            this.pnlAcceptanceNote.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
+            this.pnlAcceptanceNote.WrapContents = false;
+            this.pnlAcceptanceNote.Margin = new System.Windows.Forms.Padding(0);
+            this.pnlAcceptanceNote.Controls.Add(this.lblAcceptanceNote);
+            this.pnlAcceptanceNote.Controls.Add(this.cmbAcceptanceNote);
+            this.pnlAcceptanceNote.Controls.Add(this.lblAcceptanceThreshold);
+            this.pnlAcceptanceNote.Controls.Add(this.numAcceptanceThreshold);
+            this.pnlAcceptanceSave.Name = "pnlAcceptanceSave";
+            this.pnlAcceptanceSave.AutoSize = true;
+            this.pnlAcceptanceSave.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
+            this.pnlAcceptanceSave.WrapContents = false;
+            this.pnlAcceptanceSave.Margin = new System.Windows.Forms.Padding(0);
+            this.pnlAcceptanceSave.Controls.Add(this.btnAcceptanceSave);
+            this.pnlAcceptanceSave.Controls.Add(this.lblAcceptanceDirty);
+            this.pnlAcceptanceSave.Controls.Add(this.btnAcceptanceReset);
+            this.pnlPerformanceView.Name = "pnlPerformanceView";
+            this.pnlPerformanceView.AutoSize = true;
+            this.pnlPerformanceView.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
+            this.pnlPerformanceView.WrapContents = false;
+            this.pnlPerformanceView.Margin = new System.Windows.Forms.Padding(0);
+            this.pnlPerformanceView.Controls.Add(this.lblPerformanceView);
+            this.pnlPerformanceView.Controls.Add(this.cmbPerformanceView);
+            this.pnlPerformanceView.Controls.Add(this.cmbPerformanceRocMode);
+            this.pnlPerformanceCommands.Controls.Add(this.btnPerformanceAnalyze);
+            this.pnlPerformanceCommands.Controls.Add(this.pnlAcceptanceRadius);
+            this.pnlPerformanceCommands.Controls.Add(this.pnlAcceptanceMargin);
+            this.pnlPerformanceCommands.Controls.Add(this.pnlAcceptanceNote);
+            this.pnlPerformanceCommands.Controls.Add(this.pnlAcceptanceSave);
+            this.pnlPerformanceCommands.Controls.Add(this.chkPerformanceLog);
+            this.pnlPerformanceCommands.Controls.Add(this.pnlPerformanceView);
+            this.lblPerformanceSummary.Name = "lblPerformanceSummary";
+            this.lblPerformanceSummary.Dock = System.Windows.Forms.DockStyle.Top;
+            this.lblPerformanceSummary.Height = 62;
+            this.lblPerformanceSummary.Padding = new System.Windows.Forms.Padding(3, 2, 3, 2);
+            this.lblPerformanceSummary.Text = "Activate a model with Use, verify HEOG labels, then Analyze.";
+            this.lblPerformanceSummary.AutoEllipsis = true;
+            this.pnlPerformanceContent.Name = "pnlPerformanceContent";
+            this.pnlPerformanceContent.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.pnlPerformanceContent.Controls.Add(this.gridPerformanceSummary);
+            this.pnlPerformanceContent.Controls.Add(this.gridPerformanceConfusion);
+            this.pnlPerformanceContent.Controls.Add(this.performancePlot);
+            this.performancePlot.Name = "performancePlot";
+            this.performancePlot.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.performancePlot.Visible = false;
+            this.performancePlot.BackColor = System.Drawing.SystemColors.Window;
+            this.performancePlot.Size = new System.Drawing.Size(200, 100);
+            this.performancePlot.Controls.Add(this.chkPerformanceSmooth);
+            this.performancePlot.Controls.Add(this.chkPerformanceShowAll);
+            this.chkPerformanceSmooth.Name = "chkPerformanceSmooth";
+            this.chkPerformanceSmooth.Text = "Smooth";
+            this.chkPerformanceSmooth.AutoSize = true;
+            this.chkPerformanceSmooth.Size = new System.Drawing.Size(65, 17);
+            this.chkPerformanceSmooth.Location = new System.Drawing.Point(129, 77);
+            this.chkPerformanceSmooth.Anchor = System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Right;
+            this.chkPerformanceSmooth.BackColor = System.Drawing.SystemColors.Window;
+            this.chkPerformanceSmooth.UseVisualStyleBackColor = false;
+            this.chkPerformanceSmooth.Visible = false;
+            this.chkPerformanceSmooth.CheckedChanged += new System.EventHandler(this.PerformanceViewChanged);
+            this.toolTipEogRejection.SetToolTip(this.chkPerformanceSmooth, "Visual smoothing only. ROC values, AUC and current threshold points remain unchanged.");
+            this.chkPerformanceShowAll.Name = "chkPerformanceShowAll";
+            this.chkPerformanceShowAll.Text = "Show all data";
+            this.chkPerformanceShowAll.AutoSize = true;
+            this.chkPerformanceShowAll.Size = new System.Drawing.Size(90, 17);
+            this.chkPerformanceShowAll.Location = new System.Drawing.Point(104, 77);
+            this.chkPerformanceShowAll.Anchor = System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Right;
+            this.chkPerformanceShowAll.BackColor = System.Drawing.SystemColors.Window;
+            this.chkPerformanceShowAll.UseVisualStyleBackColor = false;
+            this.chkPerformanceShowAll.Visible = false;
+            this.chkPerformanceShowAll.CheckedChanged += new System.EventHandler(this.PerformanceViewChanged);
+            this.toolTipEogRejection.SetToolTip(this.chkPerformanceShowAll, "Display the complete recording. Gray data are outside labeled green fixations and excluded from metrics and CSV.");
+            this.performancePlot.Paint += new System.Windows.Forms.PaintEventHandler(this.performancePlot_Paint);
+            this.performancePlot.Resize += new System.EventHandler(this.performancePlot_Resize);
+            this.performancePlot.MouseMove += new System.Windows.Forms.MouseEventHandler(this.performancePlot_MouseMove);
+            this.performancePlot.MouseLeave += new System.EventHandler(this.performancePlot_MouseLeave);
+            this.gridPerformanceSummary.Name = "gridPerformanceSummary";
+            this.gridPerformanceSummary.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.gridPerformanceSummary.ReadOnly = true;
+            this.gridPerformanceSummary.AllowUserToAddRows = false;
+            this.gridPerformanceSummary.AllowUserToDeleteRows = false;
+            this.gridPerformanceSummary.AllowUserToResizeRows = false;
+            this.gridPerformanceSummary.RowHeadersVisible = false;
+            this.gridPerformanceSummary.BackgroundColor = System.Drawing.SystemColors.Window;
+            this.gridPerformanceSummary.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
+            this.gridPerformanceSummary.SelectionMode = System.Windows.Forms.DataGridViewSelectionMode.FullRowSelect;
+            this.gridPerformanceSummary.AutoGenerateColumns = false;
+            this.gridPerformanceSummary.AutoSizeColumnsMode = System.Windows.Forms.DataGridViewAutoSizeColumnsMode.DisplayedCells;
+            this.gridPerformanceSummary.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.AutoSize;
+            this.gridPerformanceSummary.AlternatingRowsDefaultCellStyle.BackColor = System.Drawing.Color.FromArgb(246, 248, 250);
+            this.gridPerformanceSummary.Visible = true;
+            this.gridPerformanceSummary.Columns.AddRange(new System.Windows.Forms.DataGridViewColumn[] { this.perfSummaryNote, this.perfSummaryAttempts, this.perfSummaryFirstCorrect, this.perfSummaryFirstWrong, this.perfSummaryNoSelection, this.perfSummaryDetected, this.perfSummaryLatency, this.perfSummaryAucNotes, this.perfSummaryAucBackground, this.perfSummaryScored });
+            this.perfSummaryNote.Name = "perfSummaryNote";
+            this.perfSummaryNote.HeaderText = "Note";
+            this.perfSummaryNote.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
+            this.perfSummaryAttempts.Name = "perfSummaryAttempts";
+            this.perfSummaryAttempts.HeaderText = "Attempts";
+            this.perfSummaryAttempts.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
+            this.perfSummaryFirstCorrect.Name = "perfSummaryFirstCorrect";
+            this.perfSummaryFirstCorrect.HeaderText = "First OK";
+            this.perfSummaryFirstCorrect.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
+            this.perfSummaryFirstWrong.Name = "perfSummaryFirstWrong";
+            this.perfSummaryFirstWrong.HeaderText = "First wrong";
+            this.perfSummaryFirstWrong.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
+            this.perfSummaryNoSelection.Name = "perfSummaryNoSelection";
+            this.perfSummaryNoSelection.HeaderText = "No selection";
+            this.perfSummaryNoSelection.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
+            this.perfSummaryDetected.Name = "perfSummaryDetected";
+            this.perfSummaryDetected.HeaderText = "Correct seen";
+            this.perfSummaryDetected.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
+            this.perfSummaryLatency.Name = "perfSummaryLatency";
+            this.perfSummaryLatency.HeaderText = "Mean correct (s)";
+            this.perfSummaryLatency.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
+            this.perfSummaryAucNotes.Name = "perfSummaryAucNotes";
+            this.perfSummaryAucNotes.HeaderText = "AUC notes";
+            this.perfSummaryAucNotes.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
+            this.perfSummaryAucBackground.Name = "perfSummaryAucBackground";
+            this.perfSummaryAucBackground.HeaderText = "AUC BG";
+            this.perfSummaryAucBackground.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
+            this.perfSummaryScored.Name = "perfSummaryScored";
+            this.perfSummaryScored.HeaderText = "Scored windows";
+            this.perfSummaryScored.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
+            this.gridPerformanceConfusion.Name = "gridPerformanceConfusion";
+            this.gridPerformanceConfusion.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.gridPerformanceConfusion.ReadOnly = true;
+            this.gridPerformanceConfusion.AllowUserToAddRows = false;
+            this.gridPerformanceConfusion.AllowUserToDeleteRows = false;
+            this.gridPerformanceConfusion.AllowUserToResizeRows = false;
+            this.gridPerformanceConfusion.RowHeadersVisible = false;
+            this.gridPerformanceConfusion.BackgroundColor = System.Drawing.SystemColors.Window;
+            this.gridPerformanceConfusion.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
+            this.gridPerformanceConfusion.SelectionMode = System.Windows.Forms.DataGridViewSelectionMode.FullRowSelect;
+            this.gridPerformanceConfusion.AutoGenerateColumns = false;
+            this.gridPerformanceConfusion.AutoSizeColumnsMode = System.Windows.Forms.DataGridViewAutoSizeColumnsMode.DisplayedCells;
+            this.gridPerformanceConfusion.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.AutoSize;
+            this.gridPerformanceConfusion.AlternatingRowsDefaultCellStyle.BackColor = System.Drawing.Color.FromArgb(246, 248, 250);
+            this.gridPerformanceConfusion.Visible = false;
+            this.gridPerformanceConfusion.Columns.AddRange(new System.Windows.Forms.DataGridViewColumn[] { this.perfMatrixTarget, this.perfMatrixNone, this.perfMatrixNote41, this.perfMatrixNote43, this.perfMatrixNote45, this.perfMatrixNote47, this.perfMatrixNote48, this.perfMatrixNote50, this.perfMatrixNote52, this.perfMatrixNote53 });
+            this.perfMatrixTarget.Name = "perfMatrixTarget";
+            this.perfMatrixTarget.HeaderText = "Target";
+            this.perfMatrixTarget.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
+            this.perfMatrixNone.Name = "perfMatrixNone";
+            this.perfMatrixNone.HeaderText = "No command";
+            this.perfMatrixNone.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
+            this.perfMatrixNote41.Name = "perfMatrixNote41";
+            this.perfMatrixNote41.HeaderText = "41";
+            this.perfMatrixNote41.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
+            this.perfMatrixNote43.Name = "perfMatrixNote43";
+            this.perfMatrixNote43.HeaderText = "43";
+            this.perfMatrixNote43.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
+            this.perfMatrixNote45.Name = "perfMatrixNote45";
+            this.perfMatrixNote45.HeaderText = "45";
+            this.perfMatrixNote45.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
+            this.perfMatrixNote47.Name = "perfMatrixNote47";
+            this.perfMatrixNote47.HeaderText = "47";
+            this.perfMatrixNote47.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
+            this.perfMatrixNote48.Name = "perfMatrixNote48";
+            this.perfMatrixNote48.HeaderText = "48";
+            this.perfMatrixNote48.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
+            this.perfMatrixNote50.Name = "perfMatrixNote50";
+            this.perfMatrixNote50.HeaderText = "50";
+            this.perfMatrixNote50.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
+            this.perfMatrixNote52.Name = "perfMatrixNote52";
+            this.perfMatrixNote52.HeaderText = "52";
+            this.perfMatrixNote52.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
+            this.perfMatrixNote53.Name = "perfMatrixNote53";
+            this.perfMatrixNote53.HeaderText = "53";
+            this.perfMatrixNote53.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.NotSortable;
+            this.perfSummaryFirstCorrect.ToolTipText = "Attempts whose first NEW note selection was correct; shown as count / attempts.";
+            this.perfSummaryDetected.ToolTipText = "Attempts with a correct NEW selection at any time; later correctness does not erase the first wrong selection.";
+            this.perfSummaryLatency.ToolTipText = "Mean time from target fixation start to first correct NEW selection, only among detected attempts.";
+            this.perfSummaryScored.ToolTipText = "Target decisions with finite margins available for ROC; decisions without scores still count in the confusion matrix.";
+            this.toolTipEogRejection.SetToolTip(this.chkPerformanceLog, "Save all decisions, selection events, model, markup, ROC points and summaries to an analysis CSV beside the PHS file.");
+            this.toolTipEogRejection.SetToolTip(this.lblPerformanceSummary, "Estimated Wolpaw ITR: eight note choices; first NEW selection per attempt; omissions count as errors. Timing starts at fixation and excludes gaze shifts and GUI/IPC delay. Correlated windows and repeated targets require cautious interpretation.");
             this.splitContainer1.Panel1.ResumeLayout(false);
             this.splitContainer1.Panel2.ResumeLayout(false);
             ((System.ComponentModel.ISupportInitialize)(this.splitContainer1)).EndInit();
@@ -1259,6 +1897,35 @@
             this.groupBox1.ResumeLayout(false);
             this.groupBox1.PerformLayout();
             ((System.ComponentModel.ISupportInitialize)(this.numUpDwnTimeFBaseInSec)).EndInit();
+            this.splitSsvepAnalysis.Panel1.ResumeLayout(false);
+            this.splitSsvepAnalysis.Panel2.ResumeLayout(false);
+            ((System.ComponentModel.ISupportInitialize)(this.splitSsvepAnalysis)).EndInit();
+            this.splitSsvepAnalysis.ResumeLayout(false);
+            this.splitSsvepAnalysis.PerformLayout();
+            this.splitSsvepModelDetails.Panel1.ResumeLayout(false);
+            this.splitSsvepModelDetails.Panel2.ResumeLayout(false);
+            ((System.ComponentModel.ISupportInitialize)(this.splitSsvepModelDetails)).EndInit();
+            this.splitSsvepModelDetails.ResumeLayout(false);
+            this.splitSsvepModelDetails.PerformLayout();
+            this.tblSsvepModel.ResumeLayout(false);
+            this.tblSsvepModel.PerformLayout();
+            this.tblSsvepModelControls.ResumeLayout(false);
+            this.tblSsvepModelControls.PerformLayout();
+            this.pnlSsvepModelButtons.ResumeLayout(false);
+            this.pnlSsvepModelButtons.PerformLayout();
+            this.tblSsvepStatus.ResumeLayout(false);
+            this.tblSsvepStatus.PerformLayout();
+            this.pnlSsvepCalibration.ResumeLayout(false);
+            this.pnlSsvepCalibration.PerformLayout();
+            this.toolTipEogRejection.SetToolTip(this.numHeogEpochLabel, "Notes: 41, 43, 45, 47, 48, 50, 52, 53; squares: 9-14; 0: unassigned. Enter: save; Esc: cancel. Clicking outside saves.");
+            ((System.ComponentModel.ISupportInitialize)(this.numHeogEpochLabel)).EndInit();
+            this.menuHeogEpoch.ResumeLayout(false);
+            this.pnlHeogMarkup.ResumeLayout(false);
+            this.pnlHeogMarkup.PerformLayout();
+            ((System.ComponentModel.ISupportInitialize)(this.numHeogMarkupRange)).EndInit();
+            ((System.ComponentModel.ISupportInitialize)(this.numAcceptanceThreshold)).EndInit();
+            ((System.ComponentModel.ISupportInitialize)(this.numAcceptanceMargin)).EndInit();
+            ((System.ComponentModel.ISupportInitialize)(this.numAcceptanceRadius)).EndInit();
             this.tabPageAnalysis.ResumeLayout(false);
             this.grpBxAnalysis.ResumeLayout(false);
             this.grpBxSsvepModel.ResumeLayout(false);
@@ -1283,8 +1950,6 @@
             this.splitContainer3.Panel2.PerformLayout();
             ((System.ComponentModel.ISupportInitialize)(this.splitContainer3)).EndInit();
             this.splitContainer3.ResumeLayout(false);
-            this.menuStrip1.ResumeLayout(false);
-            this.menuStrip1.PerformLayout();
             ((System.ComponentModel.ISupportInitialize)(this.trackBarPlayback)).EndInit();
             this.toolStrip1.ResumeLayout(false);
             this.toolStrip1.PerformLayout();
@@ -1299,19 +1964,72 @@
         private System.Windows.Forms.GroupBox grpBxServices;
         private System.Windows.Forms.GroupBox grpBxParameters;
         private System.Windows.Forms.Panel panelHost;
+        private System.Windows.Forms.TabControl tabSsvepAnalysisViews;
+        private System.Windows.Forms.TabPage tabLiveAnalysis;
+        private System.Windows.Forms.TabPage tabPerformance;
+        private System.Windows.Forms.FlowLayoutPanel pnlPerformanceCommands;
+        private System.Windows.Forms.FlowLayoutPanel pnlAcceptanceRadius;
+        private System.Windows.Forms.FlowLayoutPanel pnlAcceptanceMargin;
+        private System.Windows.Forms.FlowLayoutPanel pnlAcceptanceNote;
+        private System.Windows.Forms.FlowLayoutPanel pnlAcceptanceSave;
+        private System.Windows.Forms.FlowLayoutPanel pnlPerformanceView;
+        private System.Windows.Forms.Button btnPerformanceAnalyze;
+        private System.Windows.Forms.Label lblAcceptanceRadius;
+        private System.Windows.Forms.NumericUpDown numAcceptanceRadius;
+        private System.Windows.Forms.Label lblAcceptanceMargin;
+        private System.Windows.Forms.NumericUpDown numAcceptanceMargin;
+        private System.Windows.Forms.Label lblAcceptanceNote;
+        private System.Windows.Forms.ComboBox cmbAcceptanceNote;
+        private System.Windows.Forms.Label lblAcceptanceThreshold;
+        private System.Windows.Forms.NumericUpDown numAcceptanceThreshold;
+        private System.Windows.Forms.Button btnAcceptanceSave;
+        private System.Windows.Forms.Button btnAcceptanceReset;
+        private System.Windows.Forms.Label lblAcceptanceDirty;
+        private System.Windows.Forms.CheckBox chkPerformanceLog;
+        private System.Windows.Forms.Label lblPerformanceView;
+        private System.Windows.Forms.ComboBox cmbPerformanceView;
+        private System.Windows.Forms.ComboBox cmbPerformanceRocMode;
+        private System.Windows.Forms.Label lblPerformanceSummary;
+        private System.Windows.Forms.Panel pnlPerformanceContent;
+        private System.Windows.Forms.DataGridView gridPerformanceSummary;
+        private System.Windows.Forms.DataGridView gridPerformanceConfusion;
+        private System.Windows.Forms.Panel performancePlot;
+        private System.Windows.Forms.CheckBox chkPerformanceSmooth;
+        private System.Windows.Forms.CheckBox chkPerformanceShowAll;
+        private System.Windows.Forms.DataGridViewTextBoxColumn perfSummaryNote;
+        private System.Windows.Forms.DataGridViewTextBoxColumn perfSummaryAttempts;
+        private System.Windows.Forms.DataGridViewTextBoxColumn perfSummaryFirstCorrect;
+        private System.Windows.Forms.DataGridViewTextBoxColumn perfSummaryFirstWrong;
+        private System.Windows.Forms.DataGridViewTextBoxColumn perfSummaryNoSelection;
+        private System.Windows.Forms.DataGridViewTextBoxColumn perfSummaryDetected;
+        private System.Windows.Forms.DataGridViewTextBoxColumn perfSummaryLatency;
+        private System.Windows.Forms.DataGridViewTextBoxColumn perfSummaryAucNotes;
+        private System.Windows.Forms.DataGridViewTextBoxColumn perfSummaryAucBackground;
+        private System.Windows.Forms.DataGridViewTextBoxColumn perfSummaryScored;
+        private System.Windows.Forms.DataGridViewTextBoxColumn perfMatrixTarget;
+        private System.Windows.Forms.DataGridViewTextBoxColumn perfMatrixNone;
+        private System.Windows.Forms.DataGridViewTextBoxColumn perfMatrixNote41;
+        private System.Windows.Forms.DataGridViewTextBoxColumn perfMatrixNote43;
+        private System.Windows.Forms.DataGridViewTextBoxColumn perfMatrixNote45;
+        private System.Windows.Forms.DataGridViewTextBoxColumn perfMatrixNote47;
+        private System.Windows.Forms.DataGridViewTextBoxColumn perfMatrixNote48;
+        private System.Windows.Forms.DataGridViewTextBoxColumn perfMatrixNote50;
+        private System.Windows.Forms.DataGridViewTextBoxColumn perfMatrixNote52;
+        private System.Windows.Forms.DataGridViewTextBoxColumn perfMatrixNote53;
         private System.Windows.Forms.StatusStrip statusStripMain;
         private System.Windows.Forms.ToolStripStatusLabel toolStripStatusLabel1;
         private System.Windows.Forms.ToolStripStatusLabel toolStripStatusFrequency;
         private System.Windows.Forms.TreeView treeViewServices;
         private System.Windows.Forms.SplitContainer splitContainer3;
-        private System.Windows.Forms.MenuStrip menuStrip1;
-        private System.Windows.Forms.ToolStripMenuItem fileToolStripMenuItem;
         private System.Windows.Forms.ToolStrip toolStrip1;
         private System.Windows.Forms.ToolStripButton tlStrpStartRecording;
+        private System.Windows.Forms.ToolStripButton tlStrpRecordingIndicator;
         private System.Windows.Forms.ToolStripButton tlStrpStopRecording;
         private System.Windows.Forms.ToolStripButton tlStrpOpenRecording;
         private System.Windows.Forms.ToolStripButton tlStrpPlayRecording;
         private System.Windows.Forms.ToolStripButton tlStrpStopPlayback;
+        private System.Windows.Forms.ToolStripButton tlStrpSaveAnalysis;
+        private System.Windows.Forms.ToolStripLabel lblAnalysisDirty;
         private System.Windows.Forms.ToolStripSeparator toolStripSeparator1;
         private System.Windows.Forms.TrackBar trackBarPlayback;
         private System.Windows.Forms.ListBox listBoxEpochClasses;
@@ -1327,6 +2045,13 @@
         private System.Windows.Forms.TabPage tabPageSignal;
         private System.Windows.Forms.GroupBox grpBxSignalViewer;
         private OpenTK.GLControl glCtrlViewer;
+        private System.Windows.Forms.NumericUpDown numHeogEpochLabel;
+        private System.Windows.Forms.ContextMenuStrip menuHeogEpoch;
+        private System.Windows.Forms.ToolStripMenuItem menuHeogStartHere;
+        private System.Windows.Forms.ToolStripMenuItem menuHeogAdd;
+        private System.Windows.Forms.ToolStripMenuItem menuHeogDelete;
+        private System.Windows.Forms.ToolStripSeparator menuRecordingSeparator;
+        private System.Windows.Forms.ToolStripMenuItem menuRecordingInfo;
         private System.Windows.Forms.Label label6;
         private System.Windows.Forms.ComboBox cmbBxScaleAmpl;
         private System.Windows.Forms.Label label7;
@@ -1385,6 +2110,20 @@
         private System.Windows.Forms.Label label3;
         private System.Windows.Forms.Label label8;
         private System.Windows.Forms.Label label9;
+        private System.Windows.Forms.SplitContainer splitSsvepAnalysis;
+        private System.Windows.Forms.SplitContainer splitSsvepModelDetails;
+        private System.Windows.Forms.TableLayoutPanel tblSsvepModel;
+        private System.Windows.Forms.TableLayoutPanel tblSsvepModelControls;
+        private System.Windows.Forms.FlowLayoutPanel pnlSsvepModelButtons;
+        private System.Windows.Forms.TableLayoutPanel tblSsvepStatus;
+        private System.Windows.Forms.FlowLayoutPanel pnlSsvepCalibration;
+        private System.Windows.Forms.TableLayoutPanel pnlHeogMarkup;
+        private System.Windows.Forms.Button btnHeogMarkup;
+        private System.Windows.Forms.Label lblHeogMarkupRange;
+        private System.Windows.Forms.NumericUpDown numHeogMarkupRange;
+        private System.Windows.Forms.Label lblHeogMarkupLegend;
+        private System.Windows.Forms.ToolStripProgressBar prgHeogMarkup;
+        private System.Windows.Forms.ToolStripStatusLabel statusHeogMarkup;
     }
 }
 

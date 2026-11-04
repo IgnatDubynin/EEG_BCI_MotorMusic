@@ -1,4 +1,5 @@
-﻿using System;
+﻿using PolyHubIpc;
+using System;
 using System.IO.MemoryMappedFiles;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -38,7 +39,7 @@ namespace PolyHubNet
         }
 
         private const int MagicValue = 0x50485242; // PHRB
-        private const int VersionValue = 1;
+        private const int VersionValue = 2;
 
         private const int ChannelNameCharCapacity = 32;
         private const int ChannelNameBytes = ChannelNameCharCapacity * sizeof(char);
@@ -60,6 +61,7 @@ namespace PolyHubNet
         private readonly int _blockHeaderSize;
 
         private long _dataOffset;
+        private long _channelNamesOffset;
 
         private long _nextSequence;
         private int _missedBlockCount;
@@ -116,13 +118,36 @@ namespace PolyHubNet
                     _headerMutex.WaitOne();
                     try
                     {
+                        if (_accessor.Capacity < _headerSize)
+                            throw new InvalidOperationException("Truncated ProcessingBlockRing header.");
                         RingHeader header;
                         _accessor.Read(0, out header);
 
-                        if (header.Magic != MagicValue || header.Version != VersionValue)
+                        if (header.Magic != MagicValue || (header.Version != 1 && header.Version != VersionValue))
                             throw new InvalidOperationException("Неверный формат ProcessingBlockRing.");
 
+                        if (header.ChannelCount <= 0 || header.SampleRate <= 0 || header.BlockCount <= 1 ||
+                            header.BlockSizeSamples <= 0 || (long)header.ChannelCount * header.BlockSizeSamples > int.MaxValue)
+                            throw new InvalidOperationException("Invalid ProcessingBlockRing dimensions.");
+                        _channelNamesOffset = _headerSize;
                         _dataOffset = _headerSize + (long)header.ChannelCount * ChannelNameBytes;
+                        if (header.Version == 2)
+                        {
+                            _channelNamesOffset += sizeof(int) + SignalAcquisitionInfo.HeaderBytes;
+                            if (_accessor.Capacity < _channelNamesOffset)
+                                throw new InvalidOperationException("Truncated ProcessingBlockRing v2 header.");
+                            SignalAcquisitionInfo.BinaryHeader info;
+                            _accessor.Read(_headerSize + sizeof(int), out info);
+                            SignalAcquisitionInfo.Validate(info, header.ChannelCount, header.SampleRate);
+                            _dataOffset = _accessor.ReadInt32(_headerSize);
+                            if (_dataOffset != _channelNamesOffset + ((long)header.ChannelCount + info.ReferenceCount) * ChannelNameBytes + (long)info.PhysicalInputCount * SignalAcquisitionInfo.PhysicalInputBytes)
+                                throw new InvalidOperationException("Invalid ProcessingBlockRing header size.");
+                        }
+                        long requiredBytes = checked(_dataOffset + (long)header.BlockCount *
+                            (_blockHeaderSize + (long)header.ChannelCount * header.BlockSizeSamples * sizeof(float)));
+                        if (requiredBytes > _accessor.Capacity)
+                            throw new InvalidOperationException("Truncated ProcessingBlockRing data.");
+                        if (header.Version == 2) ReadAcquisitionHeader(header); // Validate REF names before attaching.
                         _outputStream.SetChannelNames(ReadChannelNames(header.ChannelCount));
 
                         // Регистрируемся как реальный читатель
@@ -160,6 +185,26 @@ namespace PolyHubNet
             return false;
         }
 
+        public SignalAcquisitionInfo ReadAcquisitionInfo()
+        {
+            _headerMutex.WaitOne();
+            try
+            {
+                RingHeader header = ReadHeader();
+                return header.Version == 2 && header.IsRunning != 0 ? ReadAcquisitionHeader(header) : null;
+            }
+            finally { _headerMutex.ReleaseMutex(); }
+        }
+
+        private SignalAcquisitionInfo ReadAcquisitionHeader(RingHeader header)
+        {
+            SignalAcquisitionInfo.BinaryHeader info;
+            _accessor.Read(_headerSize + sizeof(int), out info);
+            SignalAcquisitionInfo.Validate(info, header.ChannelCount, header.SampleRate);
+            return SignalAcquisitionInfo.Decode(_accessor, info,
+                _channelNamesOffset + (long)header.ChannelCount * ChannelNameBytes);
+        }
+
         public int GetChannelCount()
         {
             return ReadHeader().ChannelCount;
@@ -187,7 +232,7 @@ namespace PolyHubNet
             {
                 char* src = (char*)(
                     basePtr +
-                    _headerSize +
+                    _channelNamesOffset +
                     (long)ch * ChannelNameBytes);
 
                 int length = 0;

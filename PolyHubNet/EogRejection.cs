@@ -53,11 +53,12 @@ namespace PolyHubNet
         // Values in the actiCHamp stream/PHS are volts; controls are microvolts.
         // HEOG is compared directly to zero of the differential output. No
         // unverified fixation baseline is inferred from a file or a moving window.
-        internal EogRejectionResult Check(float[] data, int samples, int veog, int heog)
+        internal EogRejectionResult Check(float[] data, int samples, int veog, int heog, bool checkHeog = true)
         {
-            if (!Enabled) return EogRejectionResult.Accepted;
+            bool heogEnabled = _heogEnabled && checkHeog;
+            if (!_veogEnabled && !heogEnabled) return EogRejectionResult.Accepted;
             if (_veogEnabled && veog < 0) return EogRejectionResult.Invalid("VEOG channel unavailable");
-            if (_heogEnabled && heog < 0) return EogRejectionResult.Invalid("HEOG channel unavailable");
+            if (heogEnabled && heog < 0) return EogRejectionResult.Invalid("HEOG channel unavailable");
             double minV = double.PositiveInfinity, maxV = double.NegativeInfinity, maxH = 0.0;
             for (int i = 0; i < samples; i++)
             {
@@ -68,7 +69,7 @@ namespace PolyHubNet
                     minV = Math.Min(minV, v);
                     maxV = Math.Max(maxV, v);
                 }
-                if (_heogEnabled)
+                if (heogEnabled)
                 {
                     double h = data[heog * samples + i];
                     if (!Finite(h)) return EogRejectionResult.Invalid("Invalid HEOG samples");
@@ -76,9 +77,9 @@ namespace PolyHubNet
                 }
             }
             double vUv = _veogEnabled ? (maxV - minV) * 1e6 : double.NaN;
-            double hUv = _heogEnabled ? maxH * 1e6 : double.NaN;
+            double hUv = heogEnabled ? maxH * 1e6 : double.NaN;
             int flags = (_veogEnabled && vUv > _veogThreshold ? 1 : 0) |
-                (_heogEnabled && hUv > _heogThreshold ? 2 : 0);
+                (heogEnabled && hUv > _heogThreshold ? 2 : 0);
             string reason = flags == 0 ? null :
                 ((flags & 1) != 0 ? "VEOG " + vUv.ToString("0.0") + " µV" : "") +
                 (flags == 3 ? "; " : "") +

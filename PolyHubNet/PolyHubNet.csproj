@@ -87,8 +87,13 @@
       <Link>ServiceManifest.cs</Link>
     </Compile>
     <Compile Include="EogRejection.cs" />
+    <Compile Include="HeogMarkup.cs" />
+    <Compile Include="RecordingAnalysisStore.cs" />
     <Compile Include="CovertCalibrationEog.cs" />
     <Compile Include="EpochModels.cs" />
+    <Compile Include="RecordingInfoDialog.cs"><SubType>Form</SubType></Compile>
+    <Compile Include="RecordingInfoDialog.Designer.cs"><DependentUpon>RecordingInfoDialog.cs</DependentUpon></Compile>
+    <Compile Include="SignalAcquisitionInfo.cs" />
     <Compile Include="Form1.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -121,12 +126,17 @@
     <Compile Include="SignalProcessorSlot.cs" />
     <Compile Include="SignalStream.cs" />
     <Compile Include="SsvepAnalysisResult.cs" />
+    <Compile Include="SsvepPerformance.cs" />
+    <Compile Include="SsvepPerformancePlot.cs" />
     <Compile Include="SsvepAcceptance.cs" />
     <Compile Include="SsvepFeatureExtractor.cs" />
     <Compile Include="SsvepModel.cs" />
     <Compile Include="SsvepProcessor.cs" />
     <Compile Include="SsvepTrainer.cs" />
     <Compile Include="SsvepChannelSelection.cs" />
+    <EmbeddedResource Include="RecordingImages.resx">
+      <LogicalName>PolyHubNet.RecordingImages.resources</LogicalName>
+    </EmbeddedResource>
     <EmbeddedResource Include="Form1.resx">
       <DependentUpon>Form1.cs</DependentUpon>
     </EmbeddedResource>

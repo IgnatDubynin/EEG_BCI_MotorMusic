@@ -79,5 +79,14 @@ namespace NeuroPiano
 
         [DataMember(Order = 25)]
         public int CovertCalibrationNeutralDurationMs { get; set; }
+
+        [DataMember(Order = 26)]
+        public bool ShowNoteTooltips { get; set; } = true;
+
+        [OnDeserializing]
+        private void OnDeserializing(StreamingContext context)
+        {
+            ShowNoteTooltips = true;
+        }
     }
 }

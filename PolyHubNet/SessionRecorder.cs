@@ -75,7 +75,7 @@ namespace PolyHubNet
     public sealed class SessionRecorder : IDisposable
     {
         private const int MagicValue = 0x50485358; // PHSX
-        private const int VersionValue = 1;
+        private const int VersionValue = 2;
 
         private const int ChannelNameCharCapacity = 32;
         private const int ChannelNameBytes = ChannelNameCharCapacity * sizeof(char);
@@ -215,6 +215,12 @@ namespace PolyHubNet
             long initialFileBytes,
             long growStepBytes)
         {
+            StartSession(filePath, channelNames, sampleRate, qpcFrequency, initialFileBytes, growStepBytes, null);
+        }
+
+        public void StartSession(string filePath, string[] channelNames, int sampleRate,
+            long qpcFrequency, long initialFileBytes, long growStepBytes, SignalAcquisitionInfo acquisitionInfo)
+        {
             StopSession();
 
             if (string.IsNullOrWhiteSpace(filePath))
@@ -253,10 +259,12 @@ namespace PolyHubNet
             }
 
             int channelCount = channelNames.Length;
+            var acquisitionHeader = SignalAcquisitionInfo.Encode(acquisitionInfo, channelCount, sampleRate);
 
             long dataStartOffset =
-                _fileHeaderSize +
-                (long)channelCount * ChannelNameBytes;
+                _fileHeaderSize + SignalAcquisitionInfo.HeaderBytes +
+                ((long)channelCount + acquisitionHeader.ReferenceCount) * ChannelNameBytes +
+                (long)acquisitionHeader.PhysicalInputCount * SignalAcquisitionInfo.PhysicalInputBytes;
 
             lock (_ioSync)
             {
@@ -306,7 +314,15 @@ namespace PolyHubNet
                 _headerDirty = false;
 
                 WriteFileHeader();
+                _accessor.Write(_fileHeaderSize, ref acquisitionHeader);
                 WriteChannelNames(channelNames);
+                SignalAcquisitionInfo.WriteNames(_accessor,
+                    _fileHeaderSize + SignalAcquisitionInfo.HeaderBytes + (long)channelCount * ChannelNameBytes,
+                    acquisitionInfo != null ? acquisitionInfo.ReferenceChannels : null);
+                SignalAcquisitionInfo.WritePhysicalInputs(_accessor,
+                    _fileHeaderSize + SignalAcquisitionInfo.HeaderBytes + ((long)channelCount + acquisitionHeader.ReferenceCount) * ChannelNameBytes,
+                    acquisitionInfo != null ? acquisitionInfo.PhysicalInputs : null);
+                _accessor.Flush();
 
                 _writePosition = _header.DataStartOffset;
                 _isRecording = true;
@@ -660,7 +676,7 @@ namespace PolyHubNet
             {
                 char* dst = (char*)(
                     basePtr +
-                    _fileHeaderSize +
+                    _fileHeaderSize + SignalAcquisitionInfo.HeaderBytes +
                     (long)ch * ChannelNameBytes);
 
                 for (int i = 0; i < ChannelNameCharCapacity; i++)

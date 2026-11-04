@@ -23,6 +23,33 @@ namespace PolyHubNet
 
         [DataMember(Order = 6)]
         public EogRejectionSettings EogRejectionSettings { get; set; }
+
+        [DataMember(Order = 7)]
+        public HeogMarkupSettings HeogMarkupSettings { get; set; }
+    }
+
+    [DataContract]
+    public sealed class HeogMarkupSettings
+    {
+        [DataMember(Order = 1)]
+        public double RangeThresholdMicrovolts { get; set; } = 20.0;
+
+        [DataMember(Order = 2)]
+        public int DetectionWindowMilliseconds { get; set; } = 100;
+
+        [DataMember(Order = 3)]
+        public int MinimumStableDurationMilliseconds { get; set; } = 200;
+
+        public void Normalize()
+        {
+            if (double.IsNaN(RangeThresholdMicrovolts) || double.IsInfinity(RangeThresholdMicrovolts) ||
+                RangeThresholdMicrovolts <= 0) RangeThresholdMicrovolts = 20.0;
+            RangeThresholdMicrovolts = System.Math.Max(0.1, System.Math.Min(10000, RangeThresholdMicrovolts));
+            if (DetectionWindowMilliseconds < 1 || DetectionWindowMilliseconds > 10000)
+                DetectionWindowMilliseconds = 100;
+            if (MinimumStableDurationMilliseconds < 1 || MinimumStableDurationMilliseconds > 60000)
+                MinimumStableDurationMilliseconds = 200;
+        }
     }
 
     [DataContract]
@@ -80,6 +107,12 @@ namespace PolyHubNet
 
         [DataMember(Order = 6)]
         public int EogRejectionProfileIndex { get; set; }
+
+        [DataMember(Order = 7)]
+        public int SplitContainer1Distance { get; set; }
+
+        [DataMember(Order = 8)]
+        public int SplitContainer2Distance { get; set; }
     }
 
     [DataContract]

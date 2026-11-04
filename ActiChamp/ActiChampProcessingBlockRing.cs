@@ -1,4 +1,5 @@
-﻿using System;
+﻿using PolyHubIpc;
+using System;
 using System.IO.MemoryMappedFiles;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -38,7 +39,7 @@ namespace ActiChamp
         }
 
         public const int MagicValue = 0x50485242; // PHRB
-        public const int VersionValue = 1;
+        public const int VersionValue = 2;
 
         public const int StatusOk = 0;
 
@@ -76,7 +77,8 @@ namespace ActiChamp
             int sampleRate,
             int blockSizeSamples,
             int blockCount,
-            string[] channelNames)
+            string[] channelNames,
+            SignalAcquisitionInfo acquisitionInfo = null)
         {
             if (string.IsNullOrWhiteSpace(mapName))
                 throw new ArgumentNullException(nameof(mapName));
@@ -113,6 +115,7 @@ namespace ActiChamp
                 }
             }
 
+            var acquisitionHeader = SignalAcquisitionInfo.Encode(acquisitionInfo, channelCount, sampleRate);
             _channelCount = channelCount;
             _sampleRate = sampleRate;
             _blockSizeSamples = blockSizeSamples;
@@ -122,7 +125,7 @@ namespace ActiChamp
             _blockHeaderSize = Marshal.SizeOf(typeof(BlockHeader));
 
             _payloadFloatCountPerBlock =
-                _channelCount * _blockSizeSamples;
+                checked(_channelCount * _blockSizeSamples);
 
             _payloadBytesPerBlock =
                 (long)_payloadFloatCountPerBlock * sizeof(float);
@@ -131,50 +134,56 @@ namespace ActiChamp
                 _blockHeaderSize + _payloadBytesPerBlock;
 
             _dataOffset =
-                _headerSize +
-                (long)_channelCount * ChannelNameBytes;
+                checked(_headerSize + sizeof(int) + SignalAcquisitionInfo.HeaderBytes +
+                ((long)_channelCount + acquisitionHeader.ReferenceCount) * ChannelNameBytes +
+                (long)acquisitionHeader.PhysicalInputCount * SignalAcquisitionInfo.PhysicalInputBytes);
 
             _totalBytes =
-                _dataOffset +
-                _slotBytes * _blockCount;
+                checked(_dataOffset +
+                _slotBytes * _blockCount);
 
-            _mmf = MemoryMappedFile.CreateOrOpen(
-                mapName,
-                _totalBytes,
-                MemoryMappedFileAccess.ReadWrite);
-
-            _accessor = _mmf.CreateViewAccessor(
-                0,
-                _totalBytes,
-                MemoryMappedFileAccess.ReadWrite);
-
-            unsafe
+            try
             {
-                byte* ptr = null;
-                _accessor.SafeMemoryMappedViewHandle.AcquirePointer(ref ptr);
-                if (ptr == null)
-                    throw new InvalidOperationException("Не удалось получить указатель на MMF view.");
+                _mmf = MemoryMappedFile.CreateOrOpen(
+                    mapName,
+                    _totalBytes,
+                    MemoryMappedFileAccess.ReadWrite);
 
-                _viewPtr = (IntPtr)ptr;
-                _viewPointerOffset = _accessor.PointerOffset;
-                _viewPointerAcquired = true;
+                _accessor = _mmf.CreateViewAccessor(
+                    0,
+                    0,
+                    MemoryMappedFileAccess.ReadWrite);
+                if (_accessor.Capacity < _totalBytes)
+                    throw new InvalidOperationException("Existing signal ring is too small. Disconnect PolyHub and restart acquisition.");
+
+                unsafe
+                {
+                    byte* ptr = null;
+                    _accessor.SafeMemoryMappedViewHandle.AcquirePointer(ref ptr);
+                    if (ptr == null)
+                        throw new InvalidOperationException("Не удалось получить указатель на MMF view.");
+
+                    _viewPtr = (IntPtr)ptr;
+                    _viewPointerOffset = _accessor.PointerOffset;
+                    _viewPointerAcquired = true;
+                }
+
+                bool createdNew;
+                _dataReadyEvent = new EventWaitHandle(
+                    false,
+                    EventResetMode.AutoReset,
+                    eventName,
+                    out createdNew);
+
+                bool mutexCreatedNew;
+                _headerMutex = new Mutex(
+                    false,
+                    mapName + ".HeaderMutex",
+                    out mutexCreatedNew);
+
+                EnsureInitialized(channelNames, acquisitionInfo, acquisitionHeader);
             }
-
-            bool createdNew;
-            _dataReadyEvent = new EventWaitHandle(
-                false,
-                EventResetMode.AutoReset,
-                eventName,
-                out createdNew);
-
-            bool mutexCreatedNew;
-            _headerMutex = new Mutex(
-                false,
-                mapName + ".HeaderMutex",
-                out mutexCreatedNew);
-
-            EnsureInitialized();
-            WriteChannelNames(channelNames);
+            catch { Dispose(); throw; }
         }
 
         private unsafe byte* GetBasePtr()
@@ -182,30 +191,52 @@ namespace ActiChamp
             return (byte*)_viewPtr + _viewPointerOffset;
         }
 
-        private void EnsureInitialized()
+        private void EnsureInitialized(string[] channelNames, SignalAcquisitionInfo info,
+            SignalAcquisitionInfo.BinaryHeader acquisitionHeader)
         {
+            // Existing mutex protects the complete header, names and static acquisition parameters.
             _headerMutex.WaitOne();
             try
             {
                 Header header = ReadHeader();
+                if (header.Magic != 0 && (header.Magic != MagicValue || header.Version != VersionValue))
+                    throw new InvalidOperationException("Incompatible signal ring. Disconnect PolyHub and restart acquisition.");
+                if (header.Magic == MagicValue &&
+                    (header.IsRunning != 0 || header.ChannelCount != _channelCount ||
+                     header.SampleRate != _sampleRate || header.BlockSizeSamples != _blockSizeSamples ||
+                     header.BlockCount != _blockCount || _accessor.ReadInt32(_headerSize) != _dataOffset))
+                    throw new InvalidOperationException("Signal ring is in use or its layout changed. Disconnect PolyHub and restart acquisition.");
 
-                bool needInit =
-                    header.Magic != MagicValue ||
-                    header.Version != VersionValue ||
-                    header.ChannelCount != _channelCount ||
-                    header.SampleRate != _sampleRate ||
-                    header.BlockSizeSamples != _blockSizeSamples ||
-                    header.BlockCount != _blockCount;
-
-                if (!needInit)
-                    return;
-
-                InitializeHeader();
+                if (header.Magic == 0) InitializeHeader();
+                _accessor.Write(_headerSize, checked((int)_dataOffset));
+                _accessor.Write(_headerSize + sizeof(int), ref acquisitionHeader);
+                WriteChannelNames(channelNames);
+                SignalAcquisitionInfo.WriteNames(_accessor,
+                    _headerSize + sizeof(int) + SignalAcquisitionInfo.HeaderBytes + (long)_channelCount * ChannelNameBytes,
+                    info != null ? info.ReferenceChannels : null);
+                SignalAcquisitionInfo.WritePhysicalInputs(_accessor,
+                    _headerSize + sizeof(int) + SignalAcquisitionInfo.HeaderBytes + ((long)_channelCount + acquisitionHeader.ReferenceCount) * ChannelNameBytes,
+                    info != null ? info.PhysicalInputs : null);
             }
-            finally
+            finally { _headerMutex.ReleaseMutex(); }
+        }
+
+        public void SetAcquisitionInfo(SignalAcquisitionInfo info)
+        {
+            var h = SignalAcquisitionInfo.Encode(info, _channelCount, _sampleRate);
+            long expected = _headerSize + sizeof(int) + SignalAcquisitionInfo.HeaderBytes +
+                ((long)_channelCount + h.ReferenceCount) * ChannelNameBytes + (long)h.PhysicalInputCount * SignalAcquisitionInfo.PhysicalInputBytes;
+            if (expected != _dataOffset) throw new InvalidOperationException("Acquisition header layout changed.");
+            _headerMutex.WaitOne();
+            try
             {
-                _headerMutex.ReleaseMutex();
+                SignalAcquisitionInfo.WriteNames(_accessor,
+                    _headerSize + sizeof(int) + SignalAcquisitionInfo.HeaderBytes + (long)_channelCount * ChannelNameBytes, info.ReferenceChannels);
+                SignalAcquisitionInfo.WritePhysicalInputs(_accessor,
+                    _headerSize + sizeof(int) + SignalAcquisitionInfo.HeaderBytes + ((long)_channelCount + h.ReferenceCount) * ChannelNameBytes, info.PhysicalInputs);
+                _accessor.Write(_headerSize + sizeof(int), ref h);
             }
+            finally { _headerMutex.ReleaseMutex(); }
         }
 
         private unsafe void InitializeHeader()
@@ -242,7 +273,7 @@ namespace ActiChamp
             {
                 char* dst = (char*)(
                     basePtr +
-                    _headerSize +
+                    _headerSize + sizeof(int) + SignalAcquisitionInfo.HeaderBytes +
                     (long)ch * ChannelNameBytes);
 
                 for (int i = 0; i < ChannelNameCharCapacity; i++)

@@ -122,6 +122,7 @@ namespace PolyHubNet
         private float _spectrumScaleVolts = 5e-6f;
         private double _spectrumMaxFrequency = TimeFrequencySpectrum.MaxFrequency;
         private int _zoomedSpectrumChannel = -1;
+        private RectangleF _zoomedSpectrumPlot;
 
         public void SetSpectrumScaleVolts(float scaleVolts)
         {
@@ -207,8 +208,33 @@ namespace PolyHubNet
             RequestRedraw();
         }
 
+        // Called on the UI thread by the existing status refresh.
+        public bool TryGetCursorFrequency(out double frequency)
+        {
+            frequency = 0.0;
+            if (_glCtrl.IsDisposed || !_glCtrl.IsHandleCreated || !_glCtrl.Visible ||
+                !_showSpectra || _spectra == null || _zoomedSpectrumChannel < 0 ||
+                _zoomedSpectrumChannel >= _spectrumChannelNames.Length ||
+                _zoomedSpectrumPlot.Width <= 0 || _zoomedSpectrumPlot.Height <= 0)
+                return false;
+
+            Point mousePoint = _glCtrl.PointToClient(System.Windows.Forms.Control.MousePosition);
+            if (!_glCtrl.ClientRectangle.Contains(mousePoint) || !_zoomedSpectrumPlot.Contains(mousePoint))
+                return false;
+
+            double min = TimeFrequencySpectrum.MinFrequency;
+            if (_spectrumMaxFrequency <= min)
+                return false;
+
+            // Inverse of the logarithmic axis, using the actual painted plot bounds.
+            double position = (_zoomedSpectrumPlot.Bottom - mousePoint.Y) / _zoomedSpectrumPlot.Height;
+            frequency = min * Math.Exp(position * Math.Log(_spectrumMaxFrequency / min));
+            return true;
+        }
+
         private void RequestRedraw()
         {
+            _zoomedSpectrumPlot = RectangleF.Empty;
             _textureDirty = true;
 
             if (!_glCtrl.IsDisposed && _glCtrl.IsHandleCreated)
@@ -506,6 +532,8 @@ namespace PolyHubNet
                 float axisWidth = zoomed ? Math.Min(42.0f, cell.Width * 0.25f) : 0.0f;
                 RectangleF plot = new RectangleF(cell.Left + axisWidth, plotTop,
                     Math.Max(0, cell.Width - axisWidth), plotHeight);
+                if (zoomed)
+                    _zoomedSpectrumPlot = plot;
                 DrawSpectrumColumn(g, plot, ch, color);
                 if (zoomed && plot.Height > 0)
                     DrawSpectrumFrequencyGuides(g, cell.Left, plot, smallFont, dimBrush);

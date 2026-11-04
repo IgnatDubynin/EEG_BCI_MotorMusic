@@ -46,6 +46,8 @@ namespace PolyHubNet
             if (settings.EogRejectionSettings == null)
                 settings.EogRejectionSettings = EogRejectionSettings.CreateDefault();
             settings.EogRejectionSettings.Normalize();
+            if (settings.HeogMarkupSettings == null) settings.HeogMarkupSettings = new HeogMarkupSettings();
+            settings.HeogMarkupSettings.Normalize();
 
             return settings;
         }

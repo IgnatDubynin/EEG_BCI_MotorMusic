@@ -29,7 +29,7 @@ namespace NeuroPiano
         }
 
         public void Render(PianoKeyboardLayout layout, int pressedMidiNumber, SSVEPStimulusEngine ssvepStimulusEngine, int activeStimulusVisibleIndex,
-            int attentionCueVisibleIndex, int feedbackVisibleIndex, int backgroundCueVisibleIndex)
+            int attentionCueVisibleIndex, int feedbackVisibleIndex, int backgroundCueVisibleIndex, bool attentionCueIsPeripheral = false)
         {
             GL.Clear(ClearBufferMask.ColorBufferBit);
 
@@ -59,7 +59,7 @@ namespace NeuroPiano
                 attentionCueVisibleIndex < layout.WhiteKeys.Count)
             {
                 DrawTargetCueBorder(
-                    layout.WhiteKeys[attentionCueVisibleIndex].Bounds);
+                    layout.WhiteKeys[attentionCueVisibleIndex].Bounds, attentionCueIsPeripheral);
             }
 
             DrawBorder(layout.Bounds, 2.0f, 0.10f, 0.10f, 0.10f);
@@ -119,7 +119,7 @@ namespace NeuroPiano
             DrawBorder(r, 1.25f, 0.42f, 0.42f, 0.43f);
         }
 
-        private static void DrawTargetCueBorder(RectangleF bounds)
+        private static void DrawTargetCueBorder(RectangleF bounds, bool peripheral = false)
         {
             const float inset = 3.0f;
 
@@ -129,7 +129,8 @@ namespace NeuroPiano
                 bounds.Width - inset * 2.0f,
                 bounds.Height - inset * 2.0f);
 
-            DrawBorder(r, 4.0f, 0.95f, 0.20f, 0.10f);
+            if (peripheral) DrawBorder(r, 4.0f, 0.10f, 0.85f, 0.10f);
+            else DrawBorder(r, 4.0f, 0.95f, 0.20f, 0.10f);
         }
 
         private static void FillRect(RectangleF r)

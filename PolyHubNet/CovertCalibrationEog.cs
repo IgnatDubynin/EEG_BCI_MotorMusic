@@ -122,7 +122,7 @@ namespace PolyHubNet
                 bool dataReady = _blocks.Count > 0 && BlockEnd(_blocks[_blocks.Count - 1], _frequency) >= _end;
                 if (_trialRejection.Enabled && !dataReady) return null;
                 EogRejectionResult check = CheckInterval(_blocks, EogNames, _frequency,
-                    _start, _end, _trialRejection);
+                    _start, _end, _trialRejection, !IsNeutralClass(_classId));
                 var result = new CovertCalibrationCheck { ClassId = _classId, StartQpc = _start,
                     EndQpc = _end, Rejection = check };
                 _start = _end = 0;
@@ -163,13 +163,13 @@ namespace PolyHubNet
                 blocks.Add(reader.ReadBlock(blockIndex));
             }
             return CheckInterval(blocks, reader.ChannelNames, reader.Header.QpcFrequency,
-                start, epoch.EndQpc, rejection);
+                start, epoch.EndQpc, rejection, !IsNeutralClass(epoch.ClassId));
         }
 
-        // Half-open interval [CueOff, END), or [START, END) for neutral epochs.
-        // Preserve sustained HEOG deviations; do not infer a new baseline at CueOff.
+        // Check the peripheral cue and epoch up to END; the following red cue permits gaze shifts.
+        // Neutral epochs keep VEOG rejection, without HEOG rejection for the allowed return.
         public static EogRejectionResult CheckInterval(IEnumerable<SignalBlock> blocks, string[] names,
-            long frequency, long start, long end, EogRejection rejection)
+            long frequency, long start, long end, EogRejection rejection, bool checkHeog = true)
         {
             if (rejection != null && !rejection.Enabled) return EogRejectionResult.Accepted;
             if (rejection == null || end <= start || frequency <= 0)
@@ -197,7 +197,7 @@ namespace PolyHubNet
             if (vertical.Count == 0) return EogRejectionResult.Accepted;
             var data = new float[vertical.Count * 2];
             vertical.CopyTo(data, 0); horizontal.CopyTo(data, vertical.Count);
-            return rejection.Check(data, vertical.Count, v >= 0 ? 0 : -1, h >= 0 ? 1 : -1);
+            return rejection.Check(data, vertical.Count, v >= 0 ? 0 : -1, h >= 0 ? 1 : -1, checkHeog);
         }
 
         public void Dispose()

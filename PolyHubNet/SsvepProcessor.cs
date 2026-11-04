@@ -27,6 +27,8 @@ namespace PolyHubNet
         private double[] _features;
         private double[] _classScores;
 
+        private long _processedSamples;
+        private long[] _windowSampleQpc;
         private int _writePosition;
         private int _bufferedSamples;
         private int _samplesSinceAnalysis;
@@ -81,6 +83,26 @@ namespace PolyHubNet
             }
         }
 
+        // Change only decision gates. Keep the extractor and accumulated EEG intact.
+        public void SetAcceptanceSettings(double radiusMultiplier, double backgroundMargin, double[] thresholds)
+        {
+            if (!SsvepAcceptance.IsFinite(radiusMultiplier) || radiusMultiplier <= 0.0 ||
+                !SsvepAcceptance.IsFinite(backgroundMargin) || thresholds == null)
+                throw new ArgumentException("Invalid SSVEP acceptance settings.");
+            var copy = (double[])thresholds.Clone();
+            for (int i = 0; i < copy.Length; i++)
+                if (!SsvepAcceptance.IsFinite(copy[i]))
+                    throw new ArgumentException("Invalid SSVEP background threshold.");
+            lock (_sync)
+            {
+                if (_model == null || !_model.HasClassAcceptance || copy.Length != _model.ClassCount)
+                    throw new InvalidOperationException("Activate a model with acceptance settings first.");
+                _model.ClassAcceptanceRadiusMultiplier = radiusMultiplier;
+                _model.BackgroundRejectionLogOddsMargin = backgroundMargin;
+                _model.BackgroundRejectionLogOddsThresholds = copy;
+            }
+        }
+
         public void ClearModel()
         {
             lock (_sync)
@@ -95,7 +117,10 @@ namespace PolyHubNet
         public void Reset()
         {
             lock (_sync)
+            {
                 ResetBuffer_NoLock();
+                _processedSamples = 0;
+            }
         }
 
         // Useful later for a static cursor over a recording. The window must already
@@ -122,6 +147,13 @@ namespace PolyHubNet
                 _featureExtractor.Extract(channelMajorWindow, _features);
                 return EvaluateFeatures_NoLock(windowEndQpc);
             }
+        }
+
+        // Dedicated offline instance only: attach a names-only SignalStream, never publish to it.
+        // Calls exactly the same block processor as the streaming worker, without its bounded queue.
+        internal void AnalyzeRecordedBlock(SignalBlock input)
+        {
+            ProcessBlock(input);
         }
 
         protected override SignalBlock ProcessBlock(SignalBlock input)
@@ -164,6 +196,9 @@ namespace PolyHubNet
                         _eogRing[windowSamples + _writePosition] = _heogIndex >= 0
                             ? input.Data[_heogIndex * input.SampleCount + sample] : 0.0f;
                     }
+                    _windowSampleQpc[_writePosition] = input.QpcTimestamp +
+                        (long)Math.Round((double)sample * _qpcFrequency / input.SampleRate);
+                    _processedSamples++;
                     _writePosition++;
                     if (_writePosition >= windowSamples)
                         _writePosition = 0;
@@ -217,6 +252,8 @@ namespace PolyHubNet
                         result = EvaluateFeatures_NoLock(endQpc);
                     }
 
+                    result.SetWindowBounds(_windowSampleQpc[_writePosition],
+                        _processedSamples - windowSamples, _processedSamples);
                     if (ready == null)
                         ready = new List<SsvepAnalysisResult>(2);
 
@@ -304,6 +341,8 @@ namespace PolyHubNet
             _eogRing = _eogRejection.Enabled ? new float[2 * windowSamples] : null;
             _ringBuffer = new float[channelCount * windowSamples];
             _windowBuffer = new float[channelCount * windowSamples];
+            _windowSampleQpc = new long[windowSamples];
+            _processedSamples = 0;
             if (_model != null) EnsureAnalysisArrays_NoLock();
             ResetBuffer_NoLock();
 

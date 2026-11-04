@@ -1,4 +1,5 @@
-﻿using System;
+﻿using System.Collections.Generic;
+using System;
 using System.Threading;
 
 namespace ActiChamp
@@ -442,6 +443,86 @@ namespace ActiChamp
         public void StartNormal()
         {
             StartMode(ChampMode.Normal, _defaultRate);
+        }
+
+        // The caller keeps the existing signal ring and restores Normal in finally.
+        public uint[][] MeasureRecordingImpedances(int[] inputIndices)
+        {
+            if (_runState != ActiChampRunState.Normal)
+                throw new InvalidOperationException("Normal acquisition must be running before recording preparation.");
+            int inputCount = checked((int)_device.Properties.CountEeg + 1);
+            if (inputIndices == null || inputIndices.Length == 0)
+                throw new ArgumentException("No impedance inputs selected.", "inputIndices");
+            var usedInputs = new HashSet<int>(inputIndices);
+            foreach (int index in usedInputs)
+                if (index < 0 || index >= inputCount)
+                    throw new ArgumentOutOfRangeException("inputIndices");
+
+            StopForRecordingPreparation();
+            var reads = new uint[3][];
+            for (int i = 0; i < reads.Length; i++)
+            {
+                reads[i] = new uint[inputCount];
+                for (int j = 0; j < inputCount; j++) reads[i][j] = uint.MaxValue;
+            }
+            var counts = new int[inputCount];
+            var elapsed = new System.Diagnostics.Stopwatch();
+            bool received = false;
+            bool collecting = true;
+            using (var ready = new ManualResetEventSlim(false))
+            {
+                EventHandler<ActiChampImpedanceEventArgs> collect = (sender, e) => {
+                    if (e.ValuesOhm == null || e.ValuesOhm.Length != inputCount) return;
+                    lock (reads)
+                    {
+                        // Keep polling during settling; successful SDK calls can still contain startup codes.
+                        if (!collecting || elapsed.ElapsedMilliseconds < 3000) return;
+                        received = true;
+                        foreach (int index in usedInputs)
+                            if (counts[index] < 3 && e.ValuesOhm[index] < ActiChampDevice.ImpedanceInvalid)
+                                reads[counts[index]++][index] = e.ValuesOhm[index];
+                        foreach (int index in usedInputs)
+                            if (counts[index] < 3) return;
+                        _stopRequested = true;
+                        ready.Set();
+                    }
+                };
+                ImpedanceReceived += collect;
+                try
+                {
+                    StartImpedance();
+                    lock (reads) elapsed.Start();
+                    if (!ready.Wait(10000))
+                        lock (reads)
+                            if (!received) throw new TimeoutException("Could not obtain impedance readings.");
+                }
+                finally
+                {
+                    // Stop/join before removing and disposing the collector's wait handle.
+                    try { StopForRecordingPreparation(); }
+                    finally { lock (reads) collecting = false; ImpedanceReceived -= collect; }
+                }
+            }
+            return reads;
+        }
+
+        public void ResumeRecordingAcquisition()
+        {
+            if (_runState == ActiChampRunState.Normal) return;
+            StopForRecordingPreparation();
+            StartNormal();
+        }
+
+        private void StopForRecordingPreparation()
+        {
+            Thread worker;
+            lock (_sync) worker = _workerThread;
+            StopCurrentMode();
+            if (worker != null && worker.IsAlive)
+            {
+                lock (_sync) _workerThread = worker;
+                throw new InvalidOperationException("Acquisition worker did not stop; mode switching was cancelled.");
+            }
         }
 
         public void StartImpedance()

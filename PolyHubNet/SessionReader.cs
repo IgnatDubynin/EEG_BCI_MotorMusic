@@ -24,6 +24,8 @@ namespace PolyHubNet
         private bool _viewPointerAcquired;
 
         private SessionFileHeader _header;
+        private long _channelNamesOffset;
+        public SignalAcquisitionInfo AcquisitionInfo { get; private set; }
         private string[] _channelNames = new string[0];
         private readonly List<SessionBlockRecord> _blocks = new List<SessionBlockRecord>();
         private readonly List<SessionUserEvent> _events = new List<SessionUserEvent>();
@@ -65,80 +67,98 @@ namespace PolyHubNet
                 FileShare.ReadWrite);
 
             long fileLength = _fileStream.Length;
-
-            _mmf = MemoryMappedFile.CreateFromFile(
-                _fileStream,
-                null,
-                0,
-                MemoryMappedFileAccess.Read,
-                null,
-                HandleInheritability.None,
-                false);
-
-            _accessor = _mmf.CreateViewAccessor(0, 0, MemoryMappedFileAccess.Read);
-
-            unsafe
+            if (fileLength < _fileHeaderSize) { Dispose(); throw new InvalidDataException("Truncated session header."); }
+            try
             {
-                byte* ptr = null;
-                _accessor.SafeMemoryMappedViewHandle.AcquirePointer(ref ptr);
-                if (ptr == null)
-                    throw new InvalidOperationException("Не удалось получить указатель на SessionReader MMF view.");
 
-                _viewPtr = (IntPtr)ptr;
-                _viewPointerOffset = _accessor.PointerOffset;
-                _viewPointerAcquired = true;
+                _mmf = MemoryMappedFile.CreateFromFile(
+                    _fileStream,
+                    null,
+                    0,
+                    MemoryMappedFileAccess.Read,
+                    null,
+                    HandleInheritability.None,
+                    false);
+
+                _accessor = _mmf.CreateViewAccessor(0, 0, MemoryMappedFileAccess.Read);
+
+                unsafe
+                {
+                    byte* ptr = null;
+                    _accessor.SafeMemoryMappedViewHandle.AcquirePointer(ref ptr);
+                    if (ptr == null)
+                        throw new InvalidOperationException("Не удалось получить указатель на SessionReader MMF view.");
+
+                    _viewPtr = (IntPtr)ptr;
+                    _viewPointerOffset = _accessor.PointerOffset;
+                    _viewPointerAcquired = true;
+                }
+
+                unsafe
+                {
+                    byte* basePtr = GetBasePtr();
+                    _header = *(SessionFileHeader*)basePtr;
+                }
+
+                if (_header.Magic != 0x50485358)
+                {
+                    throw new InvalidOperationException(
+                        "Unsupported session file format.");
+                }
+
+                if (_header.ChannelCount <= 0 ||
+                    _header.SampleRate <= 0 || _header.QpcFrequency <= 0)
+                {
+                    throw new InvalidOperationException(
+                        "Invalid session signal format.");
+                }
+
+                switch (_header.Version)
+                {
+                    case 1: ReadHeaderV1(fileLength); break;
+                    case 2: ReadHeaderV2(fileLength); break;
+                    default: throw new InvalidDataException("Unsupported PHS version: " + _header.Version);
+                }
+
+                if (_header.CommittedBytes > fileLength)
+                    _header.CommittedBytes = fileLength;
+
+                if (_header.CommittedBytes < _header.DataStartOffset)
+                {
+                    throw new InvalidOperationException(
+                        "Invalid committed session length.");
+                }
+
+                _channelNames =
+                    ReadChannelNames(_header.ChannelCount);
+
+                BuildIndexes();
             }
+            catch { Dispose(); throw; }
+        }
 
-            unsafe
-            {
-                byte* basePtr = GetBasePtr();
-                _header = *(SessionFileHeader*)basePtr;
-            }
+        private void ReadHeaderV1(long fileLength)
+        {
+            _channelNamesOffset = _fileHeaderSize;
+            ValidateDataOffset(_channelNamesOffset + (long)_header.ChannelCount * ChannelNameBytes, fileLength);
+        }
 
-            if (_header.Magic != 0x50485358 ||
-                _header.Version != 1)
-            {
-                throw new InvalidOperationException(
-                    "Unsupported session file format.");
-            }
+        private void ReadHeaderV2(long fileLength)
+        {
+            _channelNamesOffset = _fileHeaderSize + SignalAcquisitionInfo.HeaderBytes;
+            if (fileLength < _channelNamesOffset) throw new InvalidDataException("Truncated PHS v2 header.");
+            SignalAcquisitionInfo.BinaryHeader info;
+            _accessor.Read(_fileHeaderSize, out info);
+            SignalAcquisitionInfo.Validate(info, _header.ChannelCount, _header.SampleRate);
+            long refsOffset = _channelNamesOffset + (long)_header.ChannelCount * ChannelNameBytes;
+            ValidateDataOffset(refsOffset + (long)info.ReferenceCount * ChannelNameBytes + (long)info.PhysicalInputCount * SignalAcquisitionInfo.PhysicalInputBytes, fileLength);
+            AcquisitionInfo = SignalAcquisitionInfo.Decode(_accessor, info, refsOffset);
+        }
 
-            if (_header.ChannelCount <= 0 ||
-                _header.SampleRate <= 0)
-            {
-                throw new InvalidOperationException(
-                    "Invalid session signal format.");
-            }
-
-            long expectedDataStartOffset =
-                _fileHeaderSize +
-                (long)_header.ChannelCount * ChannelNameBytes;
-
-            if (_header.DataStartOffset != expectedDataStartOffset)
-            {
-                throw new InvalidOperationException(
-                    "Invalid session data offset.");
-            }
-
-            if (_header.DataStartOffset > fileLength)
-            {
-                throw new InvalidOperationException(
-                    "Invalid session file length.");
-            }
-
-            if (_header.CommittedBytes > fileLength)
-                _header.CommittedBytes = fileLength;
-
-            if (_header.CommittedBytes < _header.DataStartOffset)
-            {
-                throw new InvalidOperationException(
-                    "Invalid committed session length.");
-            }
-
-            _channelNames =
-                ReadChannelNames(_header.ChannelCount);
-
-            BuildIndexes();
-
+        private void ValidateDataOffset(long expected, long fileLength)
+        {
+            if (_header.DataStartOffset != expected || expected > fileLength)
+                throw new InvalidDataException("Invalid session header size.");
         }
 
         public SessionBlockRecord GetBlockIndexRecord(int index)
@@ -162,7 +182,7 @@ namespace PolyHubNet
             {
                 char* src = (char*)(
                     basePtr +
-                    _fileHeaderSize +
+                    _channelNamesOffset +
                     (long)ch * ChannelNameBytes);
 
                 int length = 0;
@@ -527,7 +547,7 @@ namespace PolyHubNet
                 long payloadOffset = offset + _recordHeaderSize;
                 long nextOffset = payloadOffset + header.PayloadBytes;
 
-                if (nextOffset > endOffset)
+                if (header.PayloadBytes < 0 || nextOffset < payloadOffset || nextOffset > endOffset)
                     break;
 
                 if (header.RecordType == (int)SessionRecordType.SignalBlock)
@@ -576,6 +596,7 @@ namespace PolyHubNet
 
         public void Dispose()
         {
+            AcquisitionInfo = null;
             if (_accessor != null && _viewPointerAcquired)
             {
                 try

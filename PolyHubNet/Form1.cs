@@ -1,5 +1,7 @@
 ﻿using PolyHubIpc;
 using System;
+using System.Linq;
+using System.Drawing;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -141,6 +143,8 @@ namespace PolyHubNet
         private long _previewPageStartQpc = -1;
         private int _previewPageSampleCount = 0;
 
+        private readonly Image _recordingIdleImage;
+        private readonly Image _recordingActiveImage;
         private bool _recordingUiActive;
         private long _recordingUiStartQpc;
 
@@ -158,16 +162,45 @@ namespace PolyHubNet
         private string _openedRecordingFilePath;
         private bool _ssvepTraining;
         private bool _ssvepControlEnabled;
+        private int? _lastSentSsvepKeyIndex; // null: unsynchronized, -1: released, 0..7: pressed key
         private string _activeSsvepModelPath;
 
         public fmMain()
         {
             InitializeComponent();
+            _recordingIdleImage = tlStrpRecordingIndicator.Image;
+            _recordingActiveImage = (Image)new System.Resources.ResourceManager("PolyHubNet.RecordingImages", typeof(fmMain).Assembly).GetObject("Recording");
         }
 
 
+        protected override void OnShown(EventArgs e)
+        {
+            base.OnShown(e);
+            var ui = _polyHubSettings != null ? _polyHubSettings.PolyHubUiSettings : null;
+            if (ui == null) return;
+            RestoreSplitterDistance(splitContainer1, ui.SplitContainer1Distance);
+            RestoreSplitterDistance(splitContainer2, ui.SplitContainer2Distance);
+        }
+
+        private static void RestoreSplitterDistance(SplitContainer split, int distance)
+        {
+            if (distance <= 0) return;
+            int size = split.Orientation == Orientation.Vertical
+                ? split.ClientSize.Width : split.ClientSize.Height;
+            int maximum = size - split.SplitterWidth - split.Panel2MinSize;
+            if (maximum >= split.Panel1MinSize)
+                split.SplitterDistance = Math.Max(split.Panel1MinSize, Math.Min(maximum, distance));
+        }
+
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
         {
+            if (_editingHeogEpoch != null && numHeogEpochLabel.ContainsFocus &&
+                (keyData == Keys.Enter || keyData == Keys.Escape))
+            {
+                EndHeogEpochLabelEdit(keyData == Keys.Enter);
+                glCtrlViewer.Focus();
+                return true;
+            }
             if (keyData == Keys.F6)
             {
                 SendNeuroPianoCommand(CovertCalibrationEog.StartCommand, 0);
@@ -248,6 +281,8 @@ namespace PolyHubNet
             InitializeAnalysis2Ui();
             InitializeSsvepModelUi();
             InitializeEogRejectionUi();
+            InitializeHeogMarkupUi();
+            InitializePerformanceUi();
             TryLoadSsvepModel();
 
             _sessionRecorder = new SessionRecorder(128, 64L * 1024L * 1024L, 64L * 1024L * 1024L);
@@ -634,6 +669,7 @@ namespace PolyHubNet
             btnSsvepUse.Text = _ssvepControlEnabled && selectedIsActive ? "Unuse" : "Use";
 
             btnSsvepDelete.Enabled = !_ssvepTraining && selected;
+            UpdateAcceptanceSettingsUi();
         }
 
         private void AppendSsvepStatus(string text)
@@ -669,10 +705,14 @@ namespace PolyHubNet
             if (model == null)
                 throw new ArgumentNullException("model");
 
+            InvalidatePerformance();
             _ssvepProcessor.SetModel(model);
+            _lastSentSsvepKeyIndex = null;
             _activeSsvepModelPath = modelPath;
+            BindAcceptanceSettings(model);
             _analysisGlView.SetModel(model);
             _ressSpatialGlView.SetModel(model);
+            RefreshHeogMarkup();
             string displayName = string.IsNullOrWhiteSpace(modelPath)
                 ? "memory"
                 : Path.GetFileNameWithoutExtension(modelPath);
@@ -691,7 +731,10 @@ namespace PolyHubNet
         {
             _ssvepControlEnabled = false;
             _ssvepProcessor.ClearModel();
+            _lastSentSsvepKeyIndex = null;
             _activeSsvepModelPath = null;
+            BindAcceptanceSettings(null);
+            RefreshHeogMarkup();
             _analysisGlView.SetModel(null);
             _ressSpatialGlView.SetModel(null);
             lblSsvepActiveModel.Text = "Active: none";
@@ -730,7 +773,7 @@ namespace PolyHubNet
 
         private async void btnSsvepTrain_Click(object sender, EventArgs e)
         {
-            if (_ssvepTraining)
+            if (_ssvepTraining || RecordingAnalysisBusy)
                 return;
 
             if (string.IsNullOrWhiteSpace(_openedRecordingFilePath) ||
@@ -1002,7 +1045,6 @@ namespace PolyHubNet
         {
             if (!_ssvepControlEnabled ||
                 result == null ||
-                !result.HasPrediction ||
                 _ssvepProcessor == null)
             {
                 return;
@@ -1012,17 +1054,27 @@ namespace PolyHubNet
             if (model == null)
                 return;
 
-            int keyIndex = result.PredictedClassId.Value - 1201;
+            int keyIndex = -1;
+            if (result.HasPrediction)
+            {
+                keyIndex = result.PredictedClassId.Value - 1201;
+                if (keyIndex < 0 || keyIndex >= 8)
+                    return;
+            }
+            else if (result.IsRejected || !result.CandidateClassId.HasValue)
+            {
+                // An EOG-rejected or unprocessed window is not a classified no-note result.
+                return;
+            }
 
-            if (keyIndex < 0 || keyIndex >= 8)
+            if (keyIndex >= 0 && _lastSentSsvepKeyIndex == keyIndex)
                 return;
 
-            SendNeuroPianoCommand(
-                2003,
-                keyIndex);
+            // Each no-note window confirms release; NeuroPiano counts these commands.
+            SendNeuroPianoCommand(keyIndex >= 0 ? 2003 : 2004, Math.Max(0, keyIndex), keyIndex >= 0 ? 1 : 0);
         }
 
-        private void SendNeuroPianoCommand(int command, int value)
+        private void SendNeuroPianoCommand(int command, int value, int state = 1)
         {
             ServiceSlot neuroPiano =
                 _serviceCatalog.FindServiceSlot(
@@ -1040,10 +1092,14 @@ namespace PolyHubNet
 
             neuroPiano.ServiceEvtLink.SendEvent(
                 ServiceEventCode.UserEvent,
-                1,
+                state,
                 command,
                 value,
                 "SSVEP");
+
+            if (command == 2003) _lastSentSsvepKeyIndex = value;
+            else if (command == 2004) _lastSentSsvepKeyIndex = -1;
+            else _lastSentSsvepKeyIndex = null;
         }
 
         private void SsvepProcessor_AnalysisReady(SsvepAnalysisResult result)
@@ -1119,6 +1175,13 @@ namespace PolyHubNet
         // Корректно останавливает таймеры, сохраняет настройки и освобождает runtime-ресурсы формы.
         private void fmMain_FormClosing(object sender, FormClosingEventArgs e)
         {
+            if (RecordingAnalysisBusy)
+            {
+                e.Cancel = true;
+                AppendSsvepStatus("Wait for analysis to finish before closing.");
+                return;
+            }
+            if (!ConfirmRecordingAnalysisChanges()) { e.Cancel = true; return; }
             StopCovertCalibrationMonitor();
             try
             {
@@ -1145,6 +1208,8 @@ namespace PolyHubNet
                     ? _selectedServiceSlot.ServiceManifest.ServiceId
                     : null);
 
+            _polyHubSettings.PolyHubUiSettings.SplitContainer1Distance = splitContainer1.SplitterDistance;
+            _polyHubSettings.PolyHubUiSettings.SplitContainer2Distance = splitContainer2.SplitterDistance;
             EnsureViewerSettings();
             _polyHubSettingsStore.Save(_polyHubSettings);
 
@@ -1212,6 +1277,8 @@ namespace PolyHubNet
                 _gainProcessor.Dispose();
                 _gainProcessor = null;
             }
+            if (_recordingActiveImage != null) _recordingActiveImage.Dispose();
+            if (_recordingIdleImage != null) _recordingIdleImage.Dispose();
         }
 
         private string FormatPlaybackTimeQpc(long deltaQpc)
@@ -1280,8 +1347,41 @@ namespace PolyHubNet
             return qpc;
         }
 
+        private string _liveStatusText = string.Empty;
+        private bool _preparingRecording;
+
+        private void UpdateMainStatusText()
+        {
+            string text = _preparingRecording ? "Preparing recording…" : _viewerPlaybackMode && _sessionReader != null && _sessionReader.BlockCount > 0
+                ? SignalAcquisitionInfo.Status(_sessionReader.Header.SampleRate, _sessionReader.AcquisitionInfo)
+                : _liveStatusText;
+            if (statusStripMain.Items.Count > 0) statusStripMain.Items[0].Text = text;
+            else statusStripMain.Text = text;
+        }
+
+        private void UpdateSessionButtons()
+        {
+            _recordingUiActive = _sessionRecorder != null && _sessionRecorder.IsRecording;
+            bool idle = !RecordingAnalysisBusy && !_recordingUiActive;
+            bool hasFile = _sessionReader != null && _sessionReader.BlockCount > 0;
+            bool playbackActive = _sessionPlayback != null && _sessionPlayback.State != SessionPlaybackState.Stopped;
+            bool canReturnToLive = _viewerPlaybackMode && hasFile && _routeRuntimeController != null &&
+                _routeRuntimeController.HasConnectedLiveViewerSource();
+
+            tlStrpStartRecording.Enabled = idle && !_viewerPlaybackMode && !playbackActive;
+            tlStrpStopRecording.Enabled = !RecordingAnalysisBusy && _recordingUiActive;
+            tlStrpOpenRecording.Enabled = idle && !playbackActive;
+            tlStrpPlayRecording.Enabled = idle && hasFile;
+            tlStrpStopPlayback.Enabled = idle && (playbackActive || canReturnToLive);
+            tlStrpRecordingIndicator.Enabled = _recordingUiActive;
+            tlStrpRecordingIndicator.Image = _recordingUiActive ? _recordingActiveImage : _recordingIdleImage;
+            tlStrpRecordingIndicator.ToolTipText = _recordingUiActive ? "Recording" : "Not recording";
+        }
+
         private void UpdatePlaybackUi()
         {
+            UpdateMainStatusText();
+            UpdateRecordingAnalysisUi();
             if (_recordingUiActive)
             {
                 _playbackTrackBarInternalUpdate = true;
@@ -1430,6 +1530,7 @@ namespace PolyHubNet
 
         private void StartPlaybackFromSourceQpc(long sourceStartQpc)
         {
+            if (RecordingAnalysisBusy) return;
             if (_sessionReader == null || _sessionPlayback == null)
                 return;
 
@@ -1452,6 +1553,7 @@ namespace PolyHubNet
             if (_ssvepProcessor != null && GetActiveEogRejection().Enabled && _ssvepProcessor.InputStream == null)
                 _ssvepProcessor.AttachInput(_playbackStream);
             PrepareViewerForPlayback(playbackViewerStream);
+            ApplyHeogMarkupToPlayback(sourceStartQpc);
 
             var covertRejectedEpochs = new List<EpochInfo>();
             var covertRejection = new EogRejection(_polyHubSettings.EogRejectionSettings.CovertAttention);
@@ -1554,6 +1656,8 @@ namespace PolyHubNet
                 viewRightPageSample = 0;
             if (viewRightPageSample > pageSampleCount - 1)
                 viewRightPageSample = pageSampleCount - 1;
+            int firstScreenRight = Math.Min(pageSampleCount - 1, sampleRate * viewerTimeBaseSeconds - 1);
+            viewRightPageSample = Math.Max(viewRightPageSample, firstScreenRight);
 
             bool samePage =
                 _previewPageFirstBlockIndex == firstBlockIndex &&
@@ -1564,6 +1668,7 @@ namespace PolyHubNet
             if (samePage)
             {
                 _glScope.SetPreviewStaticRightPageSample(viewRightPageSample);
+                ApplyHeogMarkupToPreview();
                 _glScope.RefreshNow();
                 PreviewTimeFrequencyAtSourceQpc(sourceQpc);
                 UpdatePlaybackUi();
@@ -1634,6 +1739,7 @@ namespace PolyHubNet
                 long last = (long)Math.Round((double)(epoch.EndQpc - pageStartQpc) * sampleRate / _qpcFreq);
                 _glScope.AddPreviewRejectedInterval(first, last);
             }
+            ApplyHeogMarkupToPreview();
             PreviewTimeFrequencyAtSourceQpc(sourceQpc);
             _glScope.RefreshNow();
             UpdatePlaybackUi();
@@ -2217,6 +2323,12 @@ namespace PolyHubNet
         {
             ServiceEventCode code = (ServiceEventCode)evt.Code;
 
+            bool resetSsvepKey = serviceSlot.ServiceManifest != null &&
+                string.Equals(serviceSlot.ServiceManifest.ServiceId, "NeuroPiano", StringComparison.OrdinalIgnoreCase) &&
+                ((code == ServiceEventCode.State && evt.Text == "NeuroPiano online") ||
+                 (code == ServiceEventCode.Ack && (evt.Value0 == (int)ServiceEventCode.Start ||
+                  evt.Value0 == (int)ServiceEventCode.Stop || evt.Value0 == (int)ServiceEventCode.Reset)));
+
             // Обновляем флаг running по служебным статусам.
             if (code == ServiceEventCode.State || code == ServiceEventCode.Ack)
                 serviceSlot.ServiceIsRunning = evt.State != 0;
@@ -2231,7 +2343,7 @@ namespace PolyHubNet
                     " text=" + (evt.Text ?? string.Empty);
             }
 
-            if (code == ServiceEventCode.UserEvent ||
+            if (code == ServiceEventCode.UserEvent || resetSsvepKey ||
                 (code == ServiceEventCode.State &&
                  serviceSlot.ServiceManifest != null &&
                  string.Equals(serviceSlot.ServiceManifest.ServiceId, "NeuroPiano", StringComparison.OrdinalIgnoreCase)))
@@ -2243,6 +2355,7 @@ namespace PolyHubNet
                 {
                     BeginInvoke((Action)(() =>
                     {
+                        if (resetSsvepKey) _lastSentSsvepKeyIndex = null;
                         HandleNeuroPianoCalibrationState(serviceSlot, evt);
                         HandleCovertCalibrationEvent(serviceSlot, evt);
                         if (code == ServiceEventCode.UserEvent)
@@ -2378,14 +2491,14 @@ namespace PolyHubNet
                             readerText + " | " +
                             processorText;
 
-                        if (statusStripMain.Items.Count > 0)
-                            statusStripMain.Items[0].Text = combined;
-                        else
-                            statusStripMain.Text = combined;
+                        _liveStatusText = combined;
+                        UpdateMainStatusText();
 
                         double cursorFrequency;
-                        string frequencyText = _timeFrequencyGlView != null &&
-                            _timeFrequencyGlView.TryGetCursorFrequency(out cursorFrequency)
+                        string frequencyText = (_timeFrequencyGlView != null &&
+                            _timeFrequencyGlView.TryGetCursorFrequency(out cursorFrequency)) ||
+                            (_ressSpatialGlView != null &&
+                            _ressSpatialGlView.TryGetCursorFrequency(out cursorFrequency))
                             ? cursorFrequency.ToString("0.0") + " Гц"
                             : string.Empty;
                         if (toolStripStatusFrequency.Text != frequencyText)
@@ -2423,8 +2536,13 @@ namespace PolyHubNet
                 _serviceRuntimeController.ResizeActiveHostedService();
         }
 
-        private void CloseOpenedRecordedSessionFile()
+        private bool CloseOpenedRecordedSessionFile()
         {
+            if (RecordingAnalysisBusy || !ConfirmRecordingAnalysisChanges()) return false;
+            InvalidatePerformance();
+            _recordingTimeCursorSample = null;
+            if (_glScope != null) _glScope.SetPreviewTimeCursor(null, null);
+            ClearHeogMarkup();
             if (_sessionPlayback != null)
                 _sessionPlayback.Stop();
 
@@ -2473,6 +2591,7 @@ namespace PolyHubNet
             listBoxEpochClasses.Items.Clear();
             dataGridViewEpochs.DataSource = null;
             _openedRecordingFilePath = null;
+            Text = "PolyHubNET";
 
             if (_analysisGlView != null)
                 _analysisGlView.SetSelectedClassId(null);
@@ -2480,12 +2599,17 @@ namespace PolyHubNet
                 _ressSpatialGlView.SetSelectedClassId(null);
 
             UpdateSsvepModelButtons();
+            _analysisDirty = false;
+            UpdateRecordingAnalysisUi();
+            UpdateMainStatusText();
+            return true;
         }
 
 
         // Запускает запись текущего подключённого live-источника, который route runtime подал на вход processor.
-        private void tlStrpStartRecording_Click(object sender, EventArgs e)
+        private async void tlStrpStartRecording_Click(object sender, EventArgs e)
         {
+            if (RecordingAnalysisBusy || _recordingUiActive || _viewerPlaybackMode) return;
             ServiceDataOutputSlot sourceOutputSlot =
                 _routeRuntimeController != null
                     ? _routeRuntimeController.ConnectedSourceServiceDataOutputSlot
@@ -2520,44 +2644,107 @@ namespace PolyHubNet
             if (dlg.ShowDialog(this) != DialogResult.OK)
                 return;
 
-            CloseOpenedRecordedSessionFile();
+            if (!CloseOpenedRecordedSessionFile()) return;
 
-            _sessionRecorder.AttachSignalInput(recordingStream);
-            _sessionRecorder.StartSession(
-                dlg.FileName,
-                channelNames,
-                sourceOutputSlot.ServiceDataOutputReader.GetSampleRate(),
-                _qpcFreq,
-                64L * 1024L * 1024L,
-                64L * 1024L * 1024L);
-
-            QueryPerformanceCounter(out _recordingUiStartQpc);
-            _recordingUiActive = true;
-            _viewerPlaybackMode = false;
-
-            lblPlaybackCurrentTime.Text = "00:00.000";
-            lblPlaybackTotalTime.Text = "00:00.000";
-
-            _playbackTrackBarInternalUpdate = true;
             try
             {
-                _ctrlsLock = true;
+                _preparingRecording = true;
+                Enabled = false;
+                UpdateMainStatusText();
+                await PrepareSourceForRecordingAsync(sourceOutputSlot);
+                if (_routeRuntimeController.ConnectedSourceServiceDataOutputSlot != sourceOutputSlot ||
+                    sourceOutputSlot.ServiceDataOutputReader == null ||
+                    !ReferenceEquals(_routeRuntimeController.ViewerAttachedStream, recordingStream))
+                    throw new InvalidOperationException("Recording source changed during preparation.");
+                if (_ssvepProcessor != null) _ssvepProcessor.Reset();
+                _sessionRecorder.AttachSignalInput(recordingStream);
+                _sessionRecorder.StartSession(
+                    dlg.FileName,
+                    channelNames,
+                    sourceOutputSlot.ServiceDataOutputReader.GetSampleRate(),
+                    _qpcFreq,
+                    64L * 1024L * 1024L,
+                    64L * 1024L * 1024L,
+                    sourceOutputSlot.ServiceDataOutputReader.ReadAcquisitionInfo());
+
+                QueryPerformanceCounter(out _recordingUiStartQpc);
+                _recordingUiActive = true;
+                _viewerPlaybackMode = false;
+                UpdateMainStatusText();
+
+                lblPlaybackCurrentTime.Text = "00:00.000";
+                lblPlaybackTotalTime.Text = "00:00.000";
+
+                _playbackTrackBarInternalUpdate = true;
                 try
                 {
-                    trackBarPlayback.Enabled = false;
-                    trackBarPlayback.Value = trackBarPlayback.Minimum;
+                    _ctrlsLock = true;
+                    try
+                    {
+                        trackBarPlayback.Enabled = false;
+                        trackBarPlayback.Value = trackBarPlayback.Minimum;
+                    }
+                    finally
+                    {
+                        _ctrlsLock = false;
+                    }
                 }
                 finally
                 {
-                    _ctrlsLock = false;
+                    _playbackTrackBarInternalUpdate = false;
                 }
+            }
+            catch (Exception ex)
+            {
+                _sessionRecorder.StopSession();
+                _recordingUiActive = false;
+                MessageBox.Show(this, "Could not start recording: " + ex.Message, "PolyHubNET",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             finally
             {
-                _playbackTrackBarInternalUpdate = false;
+                _preparingRecording = false;
+                Enabled = true;
+                UpdatePlaybackUi();
             }
         }
 
+
+        private async System.Threading.Tasks.Task PrepareSourceForRecordingAsync(ServiceDataOutputSlot output)
+        {
+            ServiceSlot source = _serviceSlotList.Find(slot => slot.ServiceDataOutputSlotList.Contains(output));
+            if (source == null || source.ServiceManifest == null ||
+                !string.Equals(source.ServiceManifest.ServiceId, "actiCHamp", StringComparison.OrdinalIgnoreCase)) return;
+            _serviceRuntimeController.EnsureServiceEvtLinkCreated(source);
+            if (source.ServiceEvtLink == null) throw new InvalidOperationException("actiCHamp EventLink is unavailable.");
+            var completion = new System.Threading.Tasks.TaskCompletionSource<ServiceEventPacket>(
+                System.Threading.Tasks.TaskCreationOptions.RunContinuationsAsynchronously);
+            long requestQpc;
+            QueryPerformanceCounter(out requestQpc);
+            Action<ServiceEventPacket> receive = evt => {
+                if (evt.Value0 == SignalAcquisitionInfo.PrepareRecordingCommand && evt.QpcTimestamp == requestQpc &&
+                    (evt.Code == (int)ServiceEventCode.Ack || evt.Code == (int)ServiceEventCode.Error))
+                    completion.TrySetResult(evt);
+            };
+            var link = source.ServiceEvtLink;
+            link.EventReceived += receive;
+            try
+            {
+                link.SendEvent(ServiceEventCode.UserEvent, 0, SignalAcquisitionInfo.PrepareRecordingCommand, 0,
+                    "Prepare recording", requestQpc);
+                int timeoutMs = checked(35000 + (int)Math.Ceiling(6000.0 *
+                    output.ServiceDataOutputReader.GetBlockSizeSamples() / output.ServiceDataOutputReader.GetSampleRate()));
+                if (await System.Threading.Tasks.Task.WhenAny(completion.Task, System.Threading.Tasks.Task.Delay(timeoutMs)) != completion.Task)
+                    throw new TimeoutException("No recording preparation response from actiCHamp.");
+                var result = await completion.Task;
+                if (result.Code != (int)ServiceEventCode.Ack || result.State != 1)
+                    throw new InvalidOperationException(result.Text ?? "actiCHamp preparation failed.");
+                var info = output.ServiceDataOutputReader.ReadAcquisitionInfo();
+                if (info == null || info.ImpedanceMeasuredUtcTicks <= 0)
+                    throw new InvalidOperationException("actiCHamp returned no impedance measurement.");
+            }
+            finally { link.EventReceived -= receive; }
+        }
 
         private void tlStrpStopRecording_Click(object sender, EventArgs e)
         {
@@ -2571,14 +2758,16 @@ namespace PolyHubNet
 
         private void tlStrpOpenRecording_Click(object sender, EventArgs e)
         {
+            if (RecordingAnalysisBusy || _recordingUiActive ||
+                (_sessionPlayback != null && _sessionPlayback.State != SessionPlaybackState.Stopped)) return;
             OpenFileDialog dlg = new OpenFileDialog();
             dlg.Filter = "PolyHub Session (*.phs)|*.phs|All files (*.*)|*.*";
 
             if (dlg.ShowDialog(this) != DialogResult.OK)
                 return;
 
+            if (!CloseOpenedRecordedSessionFile()) return;
             _recordingUiActive = false;
-            CloseOpenedRecordedSessionFile();
 
             if (_sessionPlayback != null)
                 _sessionPlayback.Stop();
@@ -2589,6 +2778,7 @@ namespace PolyHubNet
             _sessionReader = new SessionReader();
             _sessionReader.Open(dlg.FileName);
             _openedRecordingFilePath = dlg.FileName;
+            Text = "PolyHubNET — " + Path.GetFileName(_openedRecordingFilePath);
 
             _playbackStream.SetChannelNames(_sessionReader.ChannelNames);
             AppendSsvepStatus("Opened recording: " + Path.GetFileName(dlg.FileName));
@@ -2632,6 +2822,7 @@ namespace PolyHubNet
             UpdatePlaybackUi();
 
             FillEpochClassList();
+            LoadRecordingAnalysis();
 
             PreviewRecordingAtSourceQpc(_openedPlaybackStartQpc);
         }
@@ -2733,9 +2924,9 @@ namespace PolyHubNet
             {
                 _spectrumEpoch = epoch;
                 RefreshSpatialSpectra();
+                GoToEpochInViewer(epoch);
+                AnalyzeEpochForSsvep(epoch);
             }
-            GoToEpochInViewer(epoch);
-            AnalyzeEpochForSsvep(epoch);
         }
 
         private void AnalyzeCurrentSelectedEpochForSsvep()
@@ -2939,6 +3130,7 @@ namespace PolyHubNet
 
         private void tlStrpPlayRecording_Click(object sender, EventArgs e)
         {
+            if (RecordingAnalysisBusy || _recordingUiActive) return;
             if (_sessionReader == null || _sessionReader.BlockCount == 0)
                 return;
 
@@ -2954,37 +3146,45 @@ namespace PolyHubNet
 
             long startSourceQpc = ConvertTrackBarValueToPlaybackQpc(trackBarPlayback.Value);
             StartPlaybackFromSourceQpc(startSourceQpc);
-
-/*            if (_sessionPlayback.State == SessionPlaybackState.Paused)
-            {
-                _sessionPlayback.Play();
-                return;
-            }
-
-            _viewerPlaybackMode = true;
-
-            _glScope.DetachInput();
-            _glScope.AttachInput(_playbackStream);
-            _glScope.SetFreezeTimeline(false);
-            _glScope.Configure(
-                _sessionReader.Header.ChannelCount,
-                _sessionReader.Header.SampleRate,
-                GetViewerTimeBaseSeconds(),
-                GetViewerScaleVolts());
-            _glScope.ClearEventMarkers();
-
-            _sessionPlayback.Start(
-                _sessionReader,
-                _playbackStream,
-                _glScope,
-                _sessionReader.GetFirstSourceQpc(),
-                _sessionReader.GetLastSourceQpc());*/
         }
 
 
         private void tlStrpStopPlayback_Click(object sender, EventArgs e)
         {
-            StopPlaybackAndReturnViewerToLive();
+            if (RecordingAnalysisBusy || _recordingUiActive) return;
+            if (_routeRuntimeController != null && _routeRuntimeController.HasConnectedLiveViewerSource())
+            {
+                StopPlaybackAndReturnViewerToLive();
+                return;
+            }
+            if (!_viewerPlaybackMode || _sessionReader == null || _sessionReader.BlockCount <= 0)
+            {
+                StopPlaybackAndReturnViewerToLive();
+                return;
+            }
+
+            // Stop() resets CurrentSourceQpc: save the file position first.
+            long sourceQpc = _sessionPlayback != null &&
+                _sessionPlayback.State != SessionPlaybackState.Stopped
+                ? _sessionPlayback.CurrentSourceQpc
+                : ConvertTrackBarValueToPlaybackQpc(trackBarPlayback.Value);
+            if (_sessionPlayback != null)
+                _sessionPlayback.Stop();
+
+            _playbackTrackBarInternalUpdate = true;
+            _ctrlsLock = true;
+            try
+            {
+                trackBarPlayback.Value = ConvertPlaybackQpcToTrackBarValue(sourceQpc);
+            }
+            finally
+            {
+                _ctrlsLock = false;
+                _playbackTrackBarInternalUpdate = false;
+            }
+
+            ResetPreviewStaticPageCache();
+            PreviewRecordingAtSourceQpc(sourceQpc);
         }
 
 
@@ -3426,6 +3626,7 @@ namespace PolyHubNet
 
         private void ApplyEogRejectionSettings()
         {
+            InvalidatePerformance();
             if (_ssvepProcessor != null)
                 _ssvepProcessor.SetEogRejection(GetActiveEogRejection());
         }
@@ -3660,5 +3861,800 @@ namespace PolyHubNet
                 AppendSsvepStatus("EOG settings save error: " + ex.Message);
             }
         }
+
+        private long? _recordingTimeCursorSample;
+        private bool _analysisDirty;
+        private bool _heogMarking;
+        private bool _performanceRunning;
+        private bool RecordingAnalysisBusy { get { return _heogMarking || _performanceRunning || _preparingRecording; } }
+        private SsvepPerformance _performance;
+        private string _performanceHoverText;
+        private List<HeogMarkupInterval> _heogMarkup;
+        private List<long> _heogMovementSamples = new List<long>();
+        private HeogMarkupInterval _editingHeogEpoch;
+        private HeogMarkupInterval _heogContextEpoch;
+        private long? _heogContextMarkerSample;
+        private Point _heogContextPoint;
+        private long _heogPlaybackStartQpc;
+
+
+        private bool _bindingHeogMarkupUi;
+        private void InitializeHeogMarkupUi()
+        {
+            numHeogEpochLabel.Visible = false;
+            _bindingHeogMarkupUi = true;
+            try { numHeogMarkupRange.Value = (decimal)_polyHubSettings.HeogMarkupSettings.RangeThresholdMicrovolts; }
+            finally { _bindingHeogMarkupUi = false; }
+            UpdateRecordingAnalysisUi();
+        }
+
+        private void HeogMarkupThresholdChanged(object sender, EventArgs e)
+        {
+            if (_bindingHeogMarkupUi || _polyHubSettings == null) return;
+            _polyHubSettings.HeogMarkupSettings.RangeThresholdMicrovolts = (double)numHeogMarkupRange.Value;
+            ClearHeogMarkup();
+            MarkRecordingAnalysisDirty();
+            lblHeogMarkupLegend.Text = "Threshold changed: press Mark HEOG";
+            try { _polyHubSettingsStore.Save(_polyHubSettings); }
+            catch (Exception ex) { AppendSsvepStatus("HEOG settings save error: " + ex.Message); }
+        }
+
+        private void InitializePerformanceUi()
+        {
+            cmbPerformanceView.SelectedIndex = 0;
+            cmbPerformanceRocMode.SelectedIndex = 0;
+            BindAcceptanceSettings(null);
+        }
+
+        // Defaults belong to this activation; Save tracks a separate baseline for the dirty flag.
+        private sealed class AcceptanceSettings
+        {
+            public double Radius, Margin;
+            public double[] Thresholds;
+            public AcceptanceSettings(SsvepModel model)
+            {
+                Radius = model.ClassAcceptanceRadiusMultiplier;
+                Margin = model.BackgroundRejectionLogOddsMargin;
+                Thresholds = (double[])model.BackgroundRejectionLogOddsThresholds.Clone();
+            }
+            public bool Matches(SsvepModel model)
+            {
+                return Radius == model.ClassAcceptanceRadiusMultiplier &&
+                    Margin == model.BackgroundRejectionLogOddsMargin &&
+                    Thresholds.SequenceEqual(model.BackgroundRejectionLogOddsThresholds);
+            }
+        }
+        private AcceptanceSettings _acceptanceDefaults, _acceptanceSaved;
+        private bool _bindingAcceptanceUi;
+
+        private void BindAcceptanceSettings(SsvepModel model)
+        {
+            _bindingAcceptanceUi = true;
+            try
+            {
+                bool available = model != null && model.HasClassAcceptance;
+                _acceptanceDefaults = available ? new AcceptanceSettings(model) : null;
+                _acceptanceSaved = available ? new AcceptanceSettings(model) : null;
+                cmbAcceptanceNote.Items.Clear();
+                if (available)
+                    foreach (int classId in model.ClassIds)
+                        cmbAcceptanceNote.Items.Add(SsvepPerformance.Note(classId - SsvepModel.BackgroundClassId));
+                cmbAcceptanceNote.SelectedIndex = available ? 0 : -1;
+                ShowAcceptanceValues(model);
+            }
+            finally { _bindingAcceptanceUi = false; }
+            UpdateAcceptanceSettingsUi();
+        }
+
+        private static void ShowAcceptanceValue(NumericUpDown control, double value)
+        {
+            // Never round the model on binding, even if a saved value has more precision than the display.
+            if (value < (double)control.Minimum) control.Minimum = (decimal)value;
+            if (value > (double)control.Maximum) control.Maximum = (decimal)value;
+            control.Value = (decimal)value;
+        }
+
+        private void ShowAcceptanceValues(SsvepModel model)
+        {
+            ShowAcceptanceValue(numAcceptanceRadius, model != null ? model.ClassAcceptanceRadiusMultiplier : 1.0);
+            ShowAcceptanceValue(numAcceptanceMargin, model != null ? model.BackgroundRejectionLogOddsMargin : 0.5);
+            int index = cmbAcceptanceNote.SelectedIndex;
+            ShowAcceptanceValue(numAcceptanceThreshold, model != null && model.HasClassAcceptance && index >= 0
+                ? model.BackgroundRejectionLogOddsThresholds[index] : 0.0);
+        }
+
+        private void UpdateAcceptanceSettingsUi()
+        {
+            var model = _ssvepProcessor != null ? _ssvepProcessor.Model : null;
+            bool available = model != null && model.HasClassAcceptance && _acceptanceSaved != null;
+            bool enabled = available && !RecordingAnalysisBusy && !_ssvepTraining;
+            numAcceptanceRadius.Enabled = numAcceptanceMargin.Enabled =
+                cmbAcceptanceNote.Enabled = numAcceptanceThreshold.Enabled = enabled;
+            bool dirty = available && !_acceptanceSaved.Matches(model);
+            lblAcceptanceDirty.Visible = dirty;
+            btnAcceptanceSave.Enabled = enabled && dirty && !string.IsNullOrWhiteSpace(_activeSsvepModelPath);
+            btnAcceptanceReset.Enabled = enabled && !_acceptanceDefaults.Matches(model);
+        }
+
+        private void AcceptanceNoteChanged(object sender, EventArgs e)
+        {
+            if (_bindingAcceptanceUi || _ssvepProcessor == null) return;
+            var model = _ssvepProcessor.Model;
+            if (model == null || !model.HasClassAcceptance || cmbAcceptanceNote.SelectedIndex < 0) return;
+            _bindingAcceptanceUi = true;
+            try { ShowAcceptanceValue(numAcceptanceThreshold, model.BackgroundRejectionLogOddsThresholds[cmbAcceptanceNote.SelectedIndex]); }
+            finally { _bindingAcceptanceUi = false; }
+        }
+
+        private void AcceptanceValueChanged(object sender, EventArgs e)
+        {
+            if (_bindingAcceptanceUi || RecordingAnalysisBusy || _ssvepProcessor == null) return;
+            var model = _ssvepProcessor.Model;
+            if (model == null || !model.HasClassAcceptance) return;
+            double radius = model.ClassAcceptanceRadiusMultiplier, margin = model.BackgroundRejectionLogOddsMargin;
+            var thresholds = (double[])model.BackgroundRejectionLogOddsThresholds.Clone();
+            if (sender == numAcceptanceRadius) radius = (double)numAcceptanceRadius.Value;
+            else if (sender == numAcceptanceMargin) margin = (double)numAcceptanceMargin.Value;
+            else if (cmbAcceptanceNote.SelectedIndex >= 0) thresholds[cmbAcceptanceNote.SelectedIndex] = (double)numAcceptanceThreshold.Value;
+            _ssvepProcessor.SetAcceptanceSettings(radius, margin, thresholds);
+            InvalidatePerformance();
+            UpdateAcceptanceSettingsUi();
+        }
+
+        private void btnAcceptanceReset_Click(object sender, EventArgs e)
+        {
+            if (RecordingAnalysisBusy || _acceptanceDefaults == null) return;
+            _ssvepProcessor.SetAcceptanceSettings(_acceptanceDefaults.Radius, _acceptanceDefaults.Margin, _acceptanceDefaults.Thresholds);
+            _bindingAcceptanceUi = true;
+            try { ShowAcceptanceValues(_ssvepProcessor.Model); }
+            finally { _bindingAcceptanceUi = false; }
+            InvalidatePerformance();
+            UpdateAcceptanceSettingsUi();
+        }
+
+        private void btnAcceptanceSave_Click(object sender, EventArgs e)
+        {
+            if (RecordingAnalysisBusy || _acceptanceSaved == null || string.IsNullOrWhiteSpace(_activeSsvepModelPath)) return;
+            string temporary = _activeSsvepModelPath + ".tmp." + Guid.NewGuid().ToString("N");
+            try
+            {
+                var model = SsvepPerformance.Snapshot(_ssvepProcessor.Model);
+                model.Save(temporary);
+                if (File.Exists(_activeSsvepModelPath)) File.Replace(temporary, _activeSsvepModelPath, null);
+                else File.Move(temporary, _activeSsvepModelPath);
+                _acceptanceSaved = new AcceptanceSettings(model);
+                UpdateAcceptanceSettingsUi();
+                RefreshSsvepModelList();
+                AppendSsvepStatus("Model settings saved: " + Path.GetFileName(_activeSsvepModelPath));
+            }
+            catch (Exception ex) { AppendSsvepStatus("Model settings save failed: " + ex.Message); }
+            finally { if (File.Exists(temporary)) File.Delete(temporary); }
+        }
+
+        private void InvalidatePerformance()
+        {
+            if (_performanceRunning || gridPerformanceSummary == null) return;
+            _performance = null;
+            performancePlot_MouseLeave(null, EventArgs.Empty);
+            gridPerformanceSummary.Rows.Clear(); gridPerformanceConfusion.Rows.Clear();
+            performancePlot.Invalidate();
+            lblPerformanceSummary.Text = "Activate a model with Use, verify HEOG labels, then Analyze.";
+        }
+
+        private void performancePlot_Paint(object sender, PaintEventArgs e)
+        {
+            SsvepPerformancePlot.Draw(performancePlot, e.Graphics, _performance,
+                cmbPerformanceView.SelectedIndex == 3, cmbPerformanceRocMode.SelectedIndex == 1, chkPerformanceSmooth.Checked, chkPerformanceShowAll.Checked);
+        }
+
+        private void performancePlot_Resize(object sender, EventArgs e)
+        {
+            performancePlot_MouseLeave(sender, e);
+            performancePlot.Invalidate();
+        }
+
+        private void performancePlot_MouseMove(object sender, MouseEventArgs e)
+        {
+            string hint = cmbPerformanceView.SelectedIndex == 3
+                ? SsvepPerformancePlot.TimelineHint(performancePlot, _performance, e.Location, chkPerformanceShowAll.Checked) : null;
+            if (_performanceHoverText == hint) return;
+            toolTipEogRejection.Hide(performancePlot);
+            _performanceHoverText = hint;
+            if (hint != null) toolTipEogRejection.Show(hint, performancePlot, e.X + 12, e.Y + 16, 6000);
+        }
+
+        private void performancePlot_MouseLeave(object sender, EventArgs e)
+        {
+            _performanceHoverText = null;
+            toolTipEogRejection.Hide(performancePlot);
+        }
+
+        private void PerformanceViewChanged(object sender, EventArgs e)
+        {
+            performancePlot_MouseLeave(sender, e);
+            int view = cmbPerformanceView.SelectedIndex;
+            gridPerformanceSummary.Visible = view == 0;
+            gridPerformanceConfusion.Visible = view == 1;
+            performancePlot.Visible = view >= 2;
+            cmbPerformanceRocMode.Visible = view == 2;
+            chkPerformanceSmooth.Visible = view == 2;
+            chkPerformanceShowAll.Visible = view == 3;
+            performancePlot.Invalidate();
+        }
+
+        private void ShowPerformance()
+        {
+            var run = _performance;
+            if (run == null) return;
+            gridPerformanceSummary.Rows.Clear(); gridPerformanceConfusion.Rows.Clear();
+            for (int target = 1; target <= 8; target++)
+            {
+                int note = SsvepPerformance.Note(target);
+                var attempts = run.Attempts.FindAll(a => a.Target == target);
+                var detected = attempts.FindAll(a => a.FirstCorrect > 0);
+                gridPerformanceSummary.Rows.Add(note, attempts.Count,
+                    attempts.Count(a => a.FirstSelection == note) + " / " + attempts.Count,
+                    attempts.Count(a => a.FirstSelection > 0 && a.FirstSelection != note),
+                    attempts.Count(a => a.FirstSelection == 0), detected.Count + " / " + attempts.Count,
+                    SsvepPerformance.Value(detected.Count > 0 ? detected.Average(a => a.FirstCorrectSeconds) : double.NaN),
+                    SsvepPerformance.Value(run.NotesRoc[target - 1].Auc), SsvepPerformance.Value(run.BackgroundRoc[target - 1].Auc),
+                    run.NotesRoc[target - 1].Positives);
+            }
+            if (run.Attempts.Exists(a => a.Target == 0))
+                gridPerformanceSummary.Rows.Add("Background", run.Attempts.Count(a => a.Target == 0), "—", "—",
+                    run.Attempts.Count(a => a.Target == 0 && a.FirstSelection == 0), "—", "—", "—", "—",
+                    run.Decisions.Count(d => d.Target == 0 && d.Result.ClassAcceptanceMargins.Length == 8 && d.Result.ClassAcceptanceMargins.All(SsvepPerformance.Finite)));
+            for (int target = 0; target <= 8; target++)
+            {
+                if (target == 0 && !run.Attempts.Exists(a => a.Target == 0)) continue;
+                var row = new object[10]; row[0] = target == 0 ? "Background" : SsvepPerformance.Note(target).ToString();
+                for (int j = 0; j <= 8; j++) row[j + 1] = run.Confusion[target, j];
+                gridPerformanceConfusion.Rows.Add(row);
+            }
+            lblPerformanceSummary.Text = Path.GetFileName(run.ModelPath) + " | Window " + run.Model.WindowSamples + " samples / step " + run.Model.StepSamples +
+                " | Radius × " + run.Model.ClassAcceptanceRadiusMultiplier.ToString("0.###") +
+                " | BG margin " + run.Model.BackgroundRejectionLogOddsMargin.ToString("0.###") +
+                " | Processed " + run.Decisions.Count + ", selected " + run.AnnotatedDecisions + ", scored for AUC " + run.ScoredDecisions + Environment.NewLine +
+                "Window accuracy " + SsvepPerformance.Value(run.AnnotatedDecisions > 0 ? 100.0 * run.CorrectDecisions / run.AnnotatedDecisions : double.NaN, "0.0") + "% | Mean AUC " + SsvepPerformance.Value(run.MacroAuc) +
+                " | Estimated ITR " + SsvepPerformance.Value(run.EstimatedItr, "0.0") + " bit/min (selection time; no gaze shift)";
+            performancePlot.Invalidate(); PerformanceViewChanged(null, EventArgs.Empty);
+        }
+
+        private async void btnPerformanceAnalyze_Click(object sender, EventArgs e)
+        {
+            if (RecordingAnalysisBusy) return;
+            if (_sessionReader == null || string.IsNullOrWhiteSpace(_openedRecordingFilePath))
+            { AppendSsvepStatus("Open a PHS recording before analysis."); return; }
+            if (_sessionPlayback != null && _sessionPlayback.State != SessionPlaybackState.Stopped)
+            { AppendSsvepStatus("Stop playback before analysis."); return; }
+            if (_ssvepTraining || _recordingUiActive)
+            { AppendSsvepStatus("Finish training/recording before analysis."); return; }
+            var active = _ssvepProcessor != null ? _ssvepProcessor.Model : null;
+            if (active == null) { AppendSsvepStatus("Activate an SSVEP model with Use before analysis."); return; }
+            EndHeogEpochLabelEdit(true);
+            if (_heogMarkup == null || !_heogMarkup.Exists(a => a.IsStable && a.TargetLabel > 0))
+            { AppendSsvepStatus("Mark HEOG and assign target labels before analysis."); return; }
+            try
+            {
+                var model = SsvepPerformance.Snapshot(active);
+                var markup = SsvepPerformance.Snapshot(_heogMarkup);
+                var heog = SsvepPerformance.Snapshot(_polyHubSettings.HeogMarkupSettings);
+                var eog = SsvepPerformance.Snapshot(_polyHubSettings.EogRejectionSettings.GazeSelection);
+                string path = _openedRecordingFilePath, modelPath = _activeSsvepModelPath;
+                bool log = chkPerformanceLog.Checked;
+                _performanceRunning = true;
+                UpdateRecordingAnalysisUi();
+                btnHeogMarkup.Enabled = numHeogMarkupRange.Enabled = grpBxSsvepModel.Enabled = grpBxEogRejection.Enabled = chkPerformanceLog.Enabled = false;
+                prgHeogMarkup.Value = 0; prgHeogMarkup.Visible = statusHeogMarkup.Visible = true;
+                statusHeogMarkup.Text = "SSVEP analysis: 0%";
+                var progress = new Progress<int>(value =>
+                {
+                    if (!_performanceRunning || IsDisposed) return;
+                    prgHeogMarkup.Value = value; statusHeogMarkup.Text = "SSVEP analysis: " + value + "%";
+                });
+                AppendSsvepStatus("Analyzing the complete recording...");
+                var result = await Task.Run(() =>
+                {
+                    var run = SsvepPerformance.Run(path, model, modelPath, markup, heog, eog, progress);
+                    if (log) try { run.SaveLog(); } catch (Exception ex) { run.LogError = ex.Message; }
+                    return run;
+                });
+                _performance = result; ShowPerformance();
+                AppendSsvepStatus("Analysis complete: " + result.Decisions.Count + " decisions; " + result.Attempts.Count + " target periods.");
+                if (log) AppendSsvepStatus(result.LogError == null ? "Saved: " + SsvepPerformance.LogPath(path) : "Results are available; CSV save failed: " + result.LogError);
+            }
+            catch (Exception ex)
+            {
+                _performance = null; performancePlot.Invalidate();
+                gridPerformanceSummary.Rows.Clear(); gridPerformanceConfusion.Rows.Clear();
+                lblPerformanceSummary.Text = "Analysis failed: " + ex.Message;
+                AppendSsvepStatus(lblPerformanceSummary.Text);
+            }
+            finally
+            {
+                _performanceRunning = false; UpdateRecordingAnalysisUi();
+                btnHeogMarkup.Enabled = numHeogMarkupRange.Enabled = grpBxSsvepModel.Enabled = grpBxEogRejection.Enabled = chkPerformanceLog.Enabled = true;
+                prgHeogMarkup.Visible = statusHeogMarkup.Visible = false;
+            }
+        }
+
+        private async void btnHeogMarkup_Click(object sender, EventArgs e)
+        {
+            if (RecordingAnalysisBusy) return;
+            if (!_viewerPlaybackMode || _sessionReader == null || string.IsNullOrWhiteSpace(_openedRecordingFilePath))
+            {
+                AppendSsvepStatus("Open a PHS recording before HEOG markup.");
+                return;
+            }
+            if (_sessionPlayback != null && _sessionPlayback.State != SessionPlaybackState.Stopped)
+            {
+                AppendSsvepStatus("Stop playback before HEOG markup.");
+                return;
+            }
+            if (_ssvepTraining || _recordingUiActive)
+            {
+                AppendSsvepStatus("Finish training/recording before HEOG markup.");
+                return;
+            }
+            string path = _openedRecordingFilePath;
+            var source = _polyHubSettings.HeogMarkupSettings;
+            var settings = new HeogMarkupSettings
+            {
+                RangeThresholdMicrovolts = source.RangeThresholdMicrovolts,
+                DetectionWindowMilliseconds = source.DetectionWindowMilliseconds,
+                MinimumStableDurationMilliseconds = source.MinimumStableDurationMilliseconds
+            };
+            _heogMarking = true;
+            UpdateRecordingAnalysisUi();
+            btnHeogMarkup.Enabled = numHeogMarkupRange.Enabled = false;
+            prgHeogMarkup.Value = 0;
+            prgHeogMarkup.Visible = statusHeogMarkup.Visible = true;
+            statusHeogMarkup.Text = "HEOG markup: 0%";
+            var progress = new Progress<int>(value =>
+            {
+                if (!_heogMarking || IsDisposed) return;
+                prgHeogMarkup.Value = value;
+                statusHeogMarkup.Text = "HEOG markup: " + value + "%";
+            });
+            try
+            {
+                var movementSamples = new List<long>();
+                var intervals = await Task.Run(() => HeogMarkup.AnalyzeFile(path, settings, progress, movementSamples));
+                if (!string.Equals(path, _openedRecordingFilePath, StringComparison.Ordinal)) return;
+                _heogMarkup = intervals;
+                _heogMovementSamples = movementSamples;
+                MarkRecordingAnalysisDirty();
+                int count = intervals.FindAll(range => range.IsStable).Count;
+                RefreshHeogMarkup();
+                AppendSsvepStatus("HEOG markup: " + movementSamples.Count + " gaze shifts; " + count + " stable intervals; range " +
+                    settings.RangeThresholdMicrovolts.ToString("0.0") + " µV; window " +
+                    settings.DetectionWindowMilliseconds + " ms; minimum stable " +
+                    settings.MinimumStableDurationMilliseconds + " ms. Draft note labels: 41, 43, 45, 47, 48, 50, 52, 53 and back; verify manually.");
+                if (!intervals.Exists(range => range.TargetLabel >= 0))
+                    AppendSsvepStatus("No stable fixation at the first note-on marker. Right-click a fixation to choose the start.");
+            }
+            catch (Exception ex)
+            {
+                bool hadMarkup = _heogMarkup != null;
+                ClearHeogMarkup();
+                if (hadMarkup) MarkRecordingAnalysisDirty();
+                AppendSsvepStatus("HEOG markup error: " + ex.Message);
+            }
+            finally
+            {
+                _heogMarking = false;
+                UpdateRecordingAnalysisUi();
+                btnHeogMarkup.Enabled = numHeogMarkupRange.Enabled = true;
+                prgHeogMarkup.Visible = statusHeogMarkup.Visible = false;
+            }
+        }
+
+        private void ClearHeogMarkup()
+        {
+            EndHeogEpochLabelEdit(false);
+            _heogMarkup = null;
+            _heogContextEpoch = null;
+            _heogContextMarkerSample = null;
+            menuHeogEpoch.Close();
+            _heogMovementSamples.Clear();
+            if (lblHeogMarkupLegend != null) lblHeogMarkupLegend.Text = "Green: fixation; click its number to edit";
+            if (_glScope != null)
+            {
+                _glScope.SetPreviewHeogMarkers(null);
+                _glScope.SetPlaybackHeogMarkers(null);
+                _glScope.SetPreviewHeogEpochs(null);
+                _glScope.SetPlaybackHeogEpochs(null);
+            }
+        }
+
+        private void RefreshHeogMarkup()
+        {
+            if (lblHeogMarkupLegend != null)
+                lblHeogMarkupLegend.Text = _heogMarkup != null && !_heogMarkup.Exists(range => range.TargetLabel >= 0)
+                    ? "Right-click a fixation to choose the start"
+                    : "Green: fixation; click its number to edit";
+            if (_sessionPlayback != null && _sessionPlayback.State != SessionPlaybackState.Stopped)
+                ApplyHeogMarkupToPlayback(_heogPlaybackStartQpc);
+            else ApplyHeogMarkupToPreview();
+        }
+
+        private void ApplyHeogMarkupToPreview()
+        {
+            ApplyRecordingTimeCursor();
+            EndHeogEpochLabelEdit(true);
+            if (_glScope == null) return;
+            if (!_viewerPlaybackMode || _sessionReader == null || _heogMarkup == null ||
+                _previewPageSampleCount <= 0 ||
+                (_sessionPlayback != null && _sessionPlayback.State != SessionPlaybackState.Stopped))
+            {
+                _glScope.SetPreviewHeogMarkers(null);
+                _glScope.SetPreviewHeogEpochs(null);
+                return;
+            }
+            _glScope.SetPreviewHeogMarkers(MapHeogMarkersToBlocks(
+                _previewPageFirstBlockIndex, _previewPageLastBlockIndex));
+            _glScope.SetPreviewHeogEpochs(MapHeogEpochsToBlocks(
+                _previewPageFirstBlockIndex, _previewPageLastBlockIndex));
+        }
+
+        private void ApplyHeogMarkupToPlayback(long sourceStartQpc)
+        {
+            EndHeogEpochLabelEdit(true);
+            if (_glScope == null) return;
+            _heogPlaybackStartQpc = sourceStartQpc;
+            _glScope.SetPreviewHeogMarkers(null);
+            _glScope.SetPreviewHeogEpochs(null);
+            _glScope.SetPlaybackHeogMarkers(_sessionReader != null && _heogMarkup != null
+                ? MapHeogMarkersToBlocks(_sessionReader.FindFirstBlockIndexAtOrAfter(sourceStartQpc),
+                    _sessionReader.BlockCount - 1)
+                : null);
+            _glScope.SetPlaybackHeogEpochs(_sessionReader != null
+                ? MapHeogEpochsToBlocks(_sessionReader.FindFirstBlockIndexAtOrAfter(sourceStartQpc),
+                    _sessionReader.BlockCount - 1)
+                : null);
+        }
+
+        private List<long> MapHeogMarkersToBlocks(int firstBlockIndex, int lastBlockIndex)
+        {
+            var markers = new List<long>();
+            if (_sessionReader == null || firstBlockIndex < 0) return markers;
+            long offset = 0;
+            int markerIndex = 0;
+            for (int blockIndex = firstBlockIndex; blockIndex <= lastBlockIndex; blockIndex++)
+            {
+                SessionBlockRecord block = _sessionReader.GetBlockIndexRecord(blockIndex);
+                long end = block.FirstSampleIndex + block.SampleCount;
+                while (markerIndex < _heogMovementSamples.Count &&
+                    _heogMovementSamples[markerIndex] < block.FirstSampleIndex) markerIndex++;
+                while (markerIndex < _heogMovementSamples.Count && _heogMovementSamples[markerIndex] < end)
+                    markers.Add(offset + _heogMovementSamples[markerIndex++] - block.FirstSampleIndex);
+                offset += block.SampleCount;
+            }
+            return markers;
+        }
+
+        private List<Tuple<long, long, HeogMarkupInterval>> MapHeogEpochsToBlocks(int firstBlockIndex, int lastBlockIndex)
+        {
+            var ranges = new List<Tuple<long, long, HeogMarkupInterval>>();
+            if (_sessionReader == null || _heogMarkup == null || firstBlockIndex < 0) return ranges;
+            var markup = _heogMarkup;
+            long offset = 0;
+            int rangeIndex = 0;
+            for (int blockIndex = firstBlockIndex; blockIndex <= lastBlockIndex; blockIndex++)
+            {
+                SessionBlockRecord block = _sessionReader.GetBlockIndexRecord(blockIndex);
+                long end = block.FirstSampleIndex + block.SampleCount;
+                while (rangeIndex < markup.Count && markup[rangeIndex].EndSampleIndex <= block.FirstSampleIndex)
+                    rangeIndex++;
+                for (int i = rangeIndex; i < markup.Count && markup[i].StartSampleIndex < end; i++)
+                {
+                    var range = markup[i];
+                    long first = offset + Math.Max(0, range.StartSampleIndex - block.FirstSampleIndex);
+                    long last = offset + Math.Min(block.SampleCount, range.EndSampleIndex - block.FirstSampleIndex);
+                    if (last <= first || !range.IsStable) continue;
+                    // Blocks split a fixation for transport, not for annotation.
+                    int previous = ranges.Count - 1;
+                    if (previous >= 0 && ReferenceEquals(ranges[previous].Item3, range) && ranges[previous].Item2 == first)
+                        ranges[previous] = Tuple.Create(ranges[previous].Item1, last, range);
+                    else ranges.Add(Tuple.Create(first, last, range));
+                }
+                offset += block.SampleCount;
+            }
+            return ranges;
+        }
+        private void glCtrlViewer_HeogLabelClick(object sender, MouseEventArgs e)
+        {
+            if ((e.Button != MouseButtons.Left && e.Button != MouseButtons.Right) || _glScope == null || RecordingAnalysisBusy ||
+                (e.Button == MouseButtons.Left && _sessionPlayback != null && _sessionPlayback.State != SessionPlaybackState.Stopped)) return;
+            HeogMarkupInterval epoch;
+            Rectangle bounds;
+            bool onLabel = _glScope.TryGetHeogEpochLabel(e.Location, out epoch, out bounds);
+            if (e.Button == MouseButtons.Right)
+            {
+                menuRecordingInfo.Enabled = _sessionReader != null;
+                if (_sessionPlayback != null && _sessionPlayback.State != SessionPlaybackState.Stopped)
+                {
+                    menuHeogAdd.Enabled = menuHeogDelete.Enabled = menuHeogStartHere.Enabled = false;
+                    menuHeogEpoch.Show(glCtrlViewer, e.Location);
+                    return;
+                }
+                long previewSample, sourceSample;
+                if (!onLabel && _glScope.TryGetPreviewHeogMarker(e.Location, out previewSample) &&
+                    TryMapHeogPreviewSampleToSource(previewSample, out sourceSample))
+                {
+                    EndHeogEpochLabelEdit(true);
+                    _heogContextEpoch = null;
+                    _heogContextMarkerSample = sourceSample;
+                    menuHeogAdd.Enabled = menuHeogStartHere.Enabled = false;
+                    menuHeogDelete.Enabled = true;
+                    menuHeogEpoch.Show(glCtrlViewer, e.Location);
+                    return;
+                }
+                if (!onLabel && !_glScope.TryGetHeogEpochAt(e.Location, out epoch))
+                {
+                    menuHeogAdd.Enabled = menuHeogDelete.Enabled = menuHeogStartHere.Enabled = false;
+                    menuHeogEpoch.Show(glCtrlViewer, e.Location);
+                    return;
+                }
+                EndHeogEpochLabelEdit(true);
+                _heogContextEpoch = epoch;
+                _heogContextMarkerSample = null;
+                _heogContextPoint = e.Location;
+                menuHeogStartHere.Enabled = true;
+                menuHeogAdd.Enabled = epoch.TargetLabel < 0;
+                menuHeogDelete.Enabled = epoch.TargetLabel >= 0;
+                menuHeogEpoch.Show(glCtrlViewer, e.Location);
+                return;
+            }
+            if (onLabel) BeginHeogEpochLabelEdit(epoch, bounds);
+            else if (_viewerPlaybackMode && _sessionReader != null)
+            {
+                long previewSample, sourceSample;
+                if (_glScope.TryGetPreviewTimeSample(e.Location, out previewSample) &&
+                    TryMapHeogPreviewSampleToSource(previewSample, out sourceSample))
+                {
+                    _recordingTimeCursorSample = sourceSample;
+                    ApplyRecordingTimeCursor();
+                }
+            }
+        }
+
+        private void menuRecordingInfo_Click(object sender, EventArgs e)
+        {
+            if (_sessionReader == null) return;
+            using (var dialog = new RecordingInfoDialog(_openedRecordingFilePath, _sessionReader)) dialog.ShowDialog(this);
+        }
+
+        private void ApplyRecordingTimeCursor()
+        {
+            if (_glScope == null) return;
+            long offset = 0;
+            if (_recordingTimeCursorSample.HasValue && _sessionReader != null && _previewPageFirstBlockIndex >= 0)
+                for (int i = _previewPageFirstBlockIndex; i <= _previewPageLastBlockIndex; i++)
+                {
+                    var block = _sessionReader.GetBlockIndexRecord(i);
+                    long local = _recordingTimeCursorSample.Value - block.FirstSampleIndex;
+                    if (local >= 0 && local < block.SampleCount)
+                    {
+                        long qpc = block.QpcTimestamp + (long)Math.Round((double)local * _sessionReader.Header.QpcFrequency / _sessionReader.Header.SampleRate);
+                        long milliseconds = (long)Math.Round((double)(qpc - _sessionReader.GetFirstSourceQpc()) * 1000 / _sessionReader.Header.QpcFrequency);
+                        string text = (milliseconds / 60000).ToString("00") + ":" + (milliseconds / 1000 % 60).ToString("00") + "." + (milliseconds % 1000).ToString("000");
+                        _glScope.SetPreviewTimeCursor(offset + local, text);
+                        return;
+                    }
+                    offset += block.SampleCount;
+                }
+            _glScope.SetPreviewTimeCursor(null, null);
+        }
+
+        private bool TryMapHeogPreviewSampleToSource(long previewSample, out long sourceSample)
+        {
+            sourceSample = -1;
+            if (_sessionReader == null || _previewPageFirstBlockIndex < 0) return false;
+            long offset = 0;
+            for (int index = _previewPageFirstBlockIndex; index <= _previewPageLastBlockIndex; index++)
+            {
+                SessionBlockRecord block = _sessionReader.GetBlockIndexRecord(index);
+                if (previewSample >= offset && previewSample < offset + block.SampleCount)
+                { sourceSample = block.FirstSampleIndex + previewSample - offset; return true; }
+                offset += block.SampleCount;
+            }
+            return false;
+        }
+
+        private void BeginHeogEpochLabelEdit(HeogMarkupInterval epoch, Rectangle bounds)
+        {
+            if (IsDisposed || RecordingAnalysisBusy || _heogMarkup == null || epoch == null || !_heogMarkup.Contains(epoch) ||
+                (_sessionPlayback != null && _sessionPlayback.State != SessionPlaybackState.Stopped)) return;
+            EndHeogEpochLabelEdit(true);
+            _editingHeogEpoch = epoch;
+            int number = Math.Max(0, epoch.TargetLabel);
+            numHeogEpochLabel.Value = number;
+            numHeogEpochLabel.Text = number.ToString(CultureInfo.InvariantCulture);
+            numHeogEpochLabel.Location = new Point(
+                Math.Max(0, Math.Min(glCtrlViewer.ClientSize.Width - numHeogEpochLabel.Width, bounds.Left)),
+                Math.Max(0, Math.Min(glCtrlViewer.ClientSize.Height - numHeogEpochLabel.Height, bounds.Top)));
+            numHeogEpochLabel.Visible = true;
+            numHeogEpochLabel.BringToFront();
+            numHeogEpochLabel.Focus();
+            numHeogEpochLabel.Select(0, numHeogEpochLabel.Text.Length);
+        }
+
+        private void menuHeogAdd_Click(object sender, EventArgs e)
+        {
+            HeogMarkupInterval epoch = _heogContextEpoch;
+            _heogContextEpoch = null;
+            if (epoch == null || epoch.TargetLabel >= 0) return;
+            var bounds = new Rectangle(_heogContextPoint, numHeogEpochLabel.Size);
+            // Open after the context menu closes and restores focus. Esc leaves the epoch excluded.
+            BeginInvoke((Action)(() => BeginHeogEpochLabelEdit(epoch, bounds)));
+        }
+
+        private void menuHeogDelete_Click(object sender, EventArgs e)
+        {
+            if (_heogContextMarkerSample.HasValue)
+            {
+                long sample = _heogContextMarkerSample.Value;
+                _heogContextMarkerSample = null;
+                if (RecordingAnalysisBusy || _heogMarkup == null ||
+                    (_sessionPlayback != null && _sessionPlayback.State != SessionPlaybackState.Stopped)) return;
+                EndHeogEpochLabelEdit(true);
+                if (HeogMarkup.RemoveMovement(_sessionReader, _heogMarkup, _heogMovementSamples, sample))
+                {
+                    MarkRecordingAnalysisDirty();
+                    RefreshHeogMarkup();
+                }
+                return;
+            }
+            HeogMarkupInterval epoch = _heogContextEpoch;
+            _heogContextEpoch = null;
+            if (RecordingAnalysisBusy || _heogMarkup == null || epoch == null || !_heogMarkup.Contains(epoch) ||
+                (_sessionPlayback != null && _sessionPlayback.State != SessionPlaybackState.Stopped)) return;
+            EndHeogEpochLabelEdit(true);
+            epoch.TargetLabel = -1;
+            MarkRecordingAnalysisDirty();
+            RefreshHeogMarkup();
+        }
+
+        private void menuHeogStartHere_Click(object sender, EventArgs e)
+        {
+            HeogMarkupInterval epoch = _heogContextEpoch;
+            _heogContextEpoch = null;
+            if (RecordingAnalysisBusy || _heogMarkup == null || epoch == null || !_heogMarkup.Contains(epoch) ||
+                (_sessionPlayback != null && _sessionPlayback.State != SessionPlaybackState.Stopped)) return;
+            EndHeogEpochLabelEdit(true);
+            HeogMarkup.AssignDefaultLabels(_heogMarkup, epoch);
+            MarkRecordingAnalysisDirty();
+            RefreshHeogMarkup();
+        }
+
+        private void numHeogEpochLabel_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.KeyCode != Keys.Enter && e.KeyCode != Keys.Escape) return;
+            EndHeogEpochLabelEdit(e.KeyCode == Keys.Enter);
+            e.Handled = e.SuppressKeyPress = true;
+            glCtrlViewer.Focus();
+        }
+
+        private void numHeogEpochLabel_Leave(object sender, EventArgs e)
+        {
+            EndHeogEpochLabelEdit(true);
+        }
+
+        private void glCtrlViewer_HeogLabelResize(object sender, EventArgs e)
+        {
+            EndHeogEpochLabelEdit(true);
+        }
+
+        private void glCtrlViewer_HeogLabelMouseMove(object sender, MouseEventArgs e)
+        {
+            HeogMarkupInterval epoch;
+            Rectangle bounds;
+            glCtrlViewer.Cursor = _glScope != null && !RecordingAnalysisBusy &&
+                (_sessionPlayback == null || _sessionPlayback.State == SessionPlaybackState.Stopped) &&
+                _glScope.TryGetHeogEpochLabel(e.Location, out epoch, out bounds) ? Cursors.Hand : Cursors.Default;
+        }
+
+        private void EndHeogEpochLabelEdit(bool save)
+        {
+            HeogMarkupInterval epoch = _editingHeogEpoch;
+            if (epoch == null) return;
+            _editingHeogEpoch = null; // Hiding the editor can raise Leave again.
+            int previousLabel = epoch.TargetLabel;
+            bool wasIncluded = previousLabel >= 0;
+            int number;
+            if (save && _heogMarkup != null && _heogMarkup.Contains(epoch) &&
+                int.TryParse(numHeogEpochLabel.Text, out number) && number >= 0 && number <= HeogMarkup.MaximumTargetLabel)
+                epoch.TargetLabel = number;
+            numHeogEpochLabel.Visible = false;
+            if (epoch.TargetLabel != previousLabel) MarkRecordingAnalysisDirty();
+            if (wasIncluded != (epoch.TargetLabel >= 0)) RefreshHeogMarkup();
+            else if (_glScope != null) _glScope.RefreshNow();
+        }
+
+        private void UpdateRecordingAnalysisUi()
+        {
+            UpdateSessionButtons();
+            btnPerformanceAnalyze.Enabled = !RecordingAnalysisBusy;
+            UpdateAcceptanceSettingsUi();
+            tlStrpSaveAnalysis.Enabled = !RecordingAnalysisBusy && !_recordingUiActive && _sessionReader != null &&
+                _sessionReader.BlockCount > 0 && !string.IsNullOrWhiteSpace(_openedRecordingFilePath);
+            lblAnalysisDirty.Visible = _analysisDirty;
+        }
+
+        private void MarkRecordingAnalysisDirty()
+        {
+            InvalidatePerformance();
+            if (_sessionReader == null || string.IsNullOrWhiteSpace(_openedRecordingFilePath)) return;
+            _analysisDirty = true;
+            UpdateRecordingAnalysisUi();
+        }
+
+        private void tlStrpSaveAnalysis_Click(object sender, EventArgs e)
+        {
+            SaveRecordingAnalysis();
+        }
+
+        private bool SaveRecordingAnalysis()
+        {
+            if (RecordingAnalysisBusy || _recordingUiActive || _sessionReader == null ||
+                string.IsNullOrWhiteSpace(_openedRecordingFilePath)) return false;
+            EndHeogEpochLabelEdit(true);
+            try
+            {
+                RecordingAnalysisStore.Save(_openedRecordingFilePath, _sessionReader,
+                    _polyHubSettings.HeogMarkupSettings, _heogMarkup, _heogMovementSamples);
+                _analysisDirty = false;
+                UpdateRecordingAnalysisUi();
+                AppendSsvepStatus("Saved analysis: " + Path.GetFileName(RecordingAnalysisStore.GetPath(_openedRecordingFilePath)));
+                return true;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "Could not save annotations: " + ex.Message,
+                    "PolyHub", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return false;
+            }
+        }
+
+        private void LoadRecordingAnalysis()
+        {
+            _analysisDirty = false;
+            try
+            {
+                RecordingAnalysis analysis = RecordingAnalysisStore.Load(_openedRecordingFilePath, _sessionReader);
+                if (analysis != null)
+                {
+                    _bindingHeogMarkupUi = true;
+                    try
+                    {
+                        _polyHubSettings.HeogMarkupSettings = analysis.HeogSettings;
+                        numHeogMarkupRange.Value = (decimal)analysis.HeogSettings.RangeThresholdMicrovolts;
+                    }
+                    finally { _bindingHeogMarkupUi = false; }
+                    _heogMarkup = analysis.Intervals;
+                    _heogMovementSamples = analysis.MovementSamples;
+                    RefreshHeogMarkup();
+                    AppendSsvepStatus("Loaded analysis: " + Path.GetFileName(RecordingAnalysisStore.GetPath(_openedRecordingFilePath)));
+                }
+            }
+            catch (Exception ex)
+            {
+                AppendSsvepStatus("Analysis load error: " + ex.Message);
+            }
+            UpdateRecordingAnalysisUi();
+        }
+
+        private bool ConfirmRecordingAnalysisChanges()
+        {
+            EndHeogEpochLabelEdit(true);
+            if (!_analysisDirty) return true;
+            DialogResult result = MessageBox.Show(this,
+                "Save annotation changes for " + Path.GetFileName(_openedRecordingFilePath) + "?",
+                "PolyHub", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
+            if (result == DialogResult.Cancel) return false;
+            return result != DialogResult.Yes || SaveRecordingAnalysis();
+        }
+
     }
 }
