@@ -147,6 +147,15 @@ namespace PolyHubNet
         [DataMember(Order = 2)]
         public EogRejectionProfileSettings CovertAttention { get; set; }
 
+        internal EogRejectionSettings Copy()
+        {
+            return new EogRejectionSettings
+            {
+                GazeSelection = GazeSelection.Copy(),
+                CovertAttention = CovertAttention.Copy()
+            };
+        }
+
         public void Normalize()
         {
             if (GazeSelection == null)
@@ -187,6 +196,11 @@ namespace PolyHubNet
 
         [DataMember(Order = 4)]
         public double HeogFixationDeviationThresholdMicrovolts { get; set; }
+
+        internal EogRejectionProfileSettings Copy()
+        {
+            return (EogRejectionProfileSettings)MemberwiseClone();
+        }
 
         public void Normalize()
         {

@@ -26,6 +26,7 @@ namespace PolyHubNet
         private SessionFileHeader _header;
         private long _channelNamesOffset;
         public SignalAcquisitionInfo AcquisitionInfo { get; private set; }
+        public EogRejectionSettings RecordedEogRejectionSettings { get; private set; }
         private string[] _channelNames = new string[0];
         private readonly List<SessionBlockRecord> _blocks = new List<SessionBlockRecord>();
         private readonly List<SessionUserEvent> _events = new List<SessionUserEvent>();
@@ -116,7 +117,8 @@ namespace PolyHubNet
                 switch (_header.Version)
                 {
                     case 1: ReadHeaderV1(fileLength); break;
-                    case 2: ReadHeaderV2(fileLength); break;
+                    case 2:
+                    case 3: ReadAcquisitionHeader(fileLength); break;
                     default: throw new InvalidDataException("Unsupported PHS version: " + _header.Version);
                 }
 
@@ -143,16 +145,29 @@ namespace PolyHubNet
             ValidateDataOffset(_channelNamesOffset + (long)_header.ChannelCount * ChannelNameBytes, fileLength);
         }
 
-        private void ReadHeaderV2(long fileLength)
+        private void ReadAcquisitionHeader(long fileLength)
         {
             _channelNamesOffset = _fileHeaderSize + SignalAcquisitionInfo.HeaderBytes;
-            if (fileLength < _channelNamesOffset) throw new InvalidDataException("Truncated PHS v2 header.");
+            if (fileLength < _channelNamesOffset) throw new InvalidDataException("Truncated acquisition header.");
             SignalAcquisitionInfo.BinaryHeader info;
             _accessor.Read(_fileHeaderSize, out info);
             SignalAcquisitionInfo.Validate(info, _header.ChannelCount, _header.SampleRate);
             long refsOffset = _channelNamesOffset + (long)_header.ChannelCount * ChannelNameBytes;
-            ValidateDataOffset(refsOffset + (long)info.ReferenceCount * ChannelNameBytes + (long)info.PhysicalInputCount * SignalAcquisitionInfo.PhysicalInputBytes, fileLength);
+            long eogSettingsOffset = refsOffset + (long)info.ReferenceCount * ChannelNameBytes +
+                (long)info.PhysicalInputCount * SignalAcquisitionInfo.PhysicalInputBytes;
+            bool hasEogSettings = _header.Version == 3;
+            ValidateDataOffset(eogSettingsOffset + (hasEogSettings ? 2 * SessionEogRejectionProfile.Bytes : 0), fileLength);
             AcquisitionInfo = SignalAcquisitionInfo.Decode(_accessor, info, refsOffset);
+            if (hasEogSettings)
+            {
+                _accessor.Read(eogSettingsOffset, out SessionEogRejectionProfile gazeProfile);
+                _accessor.Read(eogSettingsOffset + SessionEogRejectionProfile.Bytes, out SessionEogRejectionProfile covertProfile);
+                RecordedEogRejectionSettings = new EogRejectionSettings
+                {
+                    GazeSelection = gazeProfile.Decode(),
+                    CovertAttention = covertProfile.Decode()
+                };
+            }
         }
 
         private void ValidateDataOffset(long expected, long fileLength)
@@ -597,6 +612,7 @@ namespace PolyHubNet
         public void Dispose()
         {
             AcquisitionInfo = null;
+            RecordedEogRejectionSettings = null;
             if (_accessor != null && _viewPointerAcquired)
             {
                 try

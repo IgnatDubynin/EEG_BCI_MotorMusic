@@ -11,6 +11,7 @@ namespace NeuroPiano
         private const string ServiceSettingsFileName = "NeuroPiano.json";
         private const string ServiceManifestFileName = "NeuroPiano.service.json";
         private const int NoteVelocity = 100;
+        private const int NoNoteCommandsBeforeRelease = 3;
 
         private readonly bool _hostedMode;
 
@@ -25,7 +26,7 @@ namespace NeuroPiano
         private SSVEPCalibrationController _ssvepCalibrationController;
         private CovertCalibrationController _covertCalibrationController;
         private bool _serviceRunning = true;
-        private int _ssvepReleaseCount;
+        private int _noNoteCommandCount;
 
         public fmMain()
             : this(false)
@@ -233,6 +234,7 @@ namespace NeuroPiano
             if (_covertCalibrationController != null)
                 _covertCalibrationController.Stop();
 
+            _noNoteCommandCount = 0;
             if (pianoKeyboard != null)
                 pianoKeyboard.ReleaseCurrentKey();
 
@@ -244,6 +246,7 @@ namespace NeuroPiano
 
         private void StopSSVEPCalibration()
         {
+            _noNoteCommandCount = 0;
             if (_ssvepCalibrationController != null)
                 _ssvepCalibrationController.Stop();
             if (_covertCalibrationController != null)
@@ -268,6 +271,7 @@ namespace NeuroPiano
                             _serviceRunning ? 1 : 0, CovertCalibrationController.StartCommand, 0, reason);
                 }
                 if (_covertCalibrationController.IsRunning) return;
+                _noNoteCommandCount = 0;
                 if (_ssvepCalibrationController != null) _ssvepCalibrationController.Stop();
                 if (_audioEngine != null) _audioEngine.AllNotesOff();
                 _covertCalibrationController.Start();
@@ -404,11 +408,11 @@ namespace NeuroPiano
                 switch (code)
                 {
                     case ServiceEventCode.Start:
+                        _noNoteCommandCount = 0;
                         _serviceRunning = true;
                         break;
 
                     case ServiceEventCode.Stop:
-                        _ssvepReleaseCount = 0;
                         StopSSVEPCalibration();
                         _serviceRunning = false;
                         if (pianoKeyboard != null)
@@ -422,7 +426,6 @@ namespace NeuroPiano
                         break;
 
                     case ServiceEventCode.Reset:
-                        _ssvepReleaseCount = 0;
                         StopSSVEPCalibration();
                         if (pianoKeyboard != null)
                             pianoKeyboard.ReleaseCurrentKey();
@@ -458,7 +461,7 @@ namespace NeuroPiano
                             if (_serviceRunning && pianoKeyboard != null &&
                                 (_covertCalibrationController == null || !_covertCalibrationController.IsRunning))
                             {
-                                _ssvepReleaseCount = 0;
+                                _noNoteCommandCount = 0;
                                 pianoKeyboard.PressVisibleWhiteKey(
                                     evt.Value1);
                             }
@@ -466,20 +469,13 @@ namespace NeuroPiano
                         else if (evt.Value0 ==
                                  (int)NeuroPianoUserCommand.ReleaseCurrentKey)
                         {
-                            if (pianoKeyboard != null)
-                            {
-                                if (evt.State != 0)
-                                {
-                                    // Explicit release (for example Unuse) remains immediate.
-                                    _ssvepReleaseCount = 0;
-                                    pianoKeyboard.ReleaseCurrentKey();
-                                }
-                                else if (_ssvepReleaseCount < 8 && ++_ssvepReleaseCount == 8)
-                                {
-                                    // Three consecutive classifier no-note commands confirm release.
-                                    pianoKeyboard.ReleaseCurrentKey();
-                                }
-                            }
+                            if (evt.State == 0)
+                                _noNoteCommandCount = Math.Min(_noNoteCommandCount + 1, NoNoteCommandsBeforeRelease);
+                            else
+                                _noNoteCommandCount = NoNoteCommandsBeforeRelease;
+
+                            if (_noNoteCommandCount == NoNoteCommandsBeforeRelease)
+                                pianoKeyboard?.ReleaseCurrentKey();
                         }
                         else if (evt.Value0 ==
                                  (int)NeuroPianoUserCommand.EpochRejected)

@@ -158,6 +158,7 @@
             this.tblEogRejection = new System.Windows.Forms.TableLayoutPanel();
             this.lblEogRejectionProfile = new System.Windows.Forms.Label();
             this.cmbBxEogRejectionProfile = new System.Windows.Forms.ComboBox();
+            this.btnUseRecordedEogThresholds = new System.Windows.Forms.Button();
             this.chkBxVeogRejection = new System.Windows.Forms.CheckBox();
             this.chkBxHeogRejection = new System.Windows.Forms.CheckBox();
             this.pnlVeogThreshold = new System.Windows.Forms.FlowLayoutPanel();
@@ -917,16 +918,18 @@
             //
             // tblEogRejection
             //
-            this.tblEogRejection.ColumnCount = 3;
+            this.tblEogRejection.ColumnCount = 4;
             this.tblEogRejection.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 33.34F));
             this.tblEogRejection.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 33.33F));
             this.tblEogRejection.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 33.33F));
+            this.tblEogRejection.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.AutoSize));
             this.tblEogRejection.Controls.Add(this.lblEogRejectionProfile, 0, 0);
             this.tblEogRejection.Controls.Add(this.cmbBxEogRejectionProfile, 0, 1);
             this.tblEogRejection.Controls.Add(this.chkBxVeogRejection, 1, 0);
             this.tblEogRejection.Controls.Add(this.pnlVeogThreshold, 1, 1);
             this.tblEogRejection.Controls.Add(this.chkBxHeogRejection, 2, 0);
             this.tblEogRejection.Controls.Add(this.pnlHeogThreshold, 2, 1);
+            this.tblEogRejection.Controls.Add(this.btnUseRecordedEogThresholds, 3, 1);
             this.tblEogRejection.Dock = System.Windows.Forms.DockStyle.Fill;
             this.tblEogRejection.Location = new System.Drawing.Point(3, 16);
             this.tblEogRejection.Name = "tblEogRejection";
@@ -958,6 +961,19 @@
             this.cmbBxEogRejectionProfile.TabIndex = 1;
             this.toolTipEogRejection.SetToolTip(this.cmbBxEogRejectionProfile, "Select the profile to edit. Each analysis layer uses its own profile.");
             this.cmbBxEogRejectionProfile.SelectedIndexChanged += new System.EventHandler(this.cmbBxEogRejectionProfile_SelectedIndexChanged);
+            //
+            // btnUseRecordedEogThresholds
+            //
+            this.btnUseRecordedEogThresholds.Anchor = System.Windows.Forms.AnchorStyles.Top;
+            this.btnUseRecordedEogThresholds.AutoSize = true;
+            this.btnUseRecordedEogThresholds.Margin = new System.Windows.Forms.Padding(3, 0, 3, 0);
+            this.btnUseRecordedEogThresholds.Name = "btnUseRecordedEogThresholds";
+            this.btnUseRecordedEogThresholds.TabIndex = 6;
+            this.btnUseRecordedEogThresholds.Text = "Use recorded";
+            this.btnUseRecordedEogThresholds.UseVisualStyleBackColor = true;
+            this.btnUseRecordedEogThresholds.Visible = false;
+            this.toolTipEogRejection.SetToolTip(this.btnUseRecordedEogThresholds, "Restore both EOG profiles saved in this recording.");
+            this.btnUseRecordedEogThresholds.Click += new System.EventHandler(this.btnUseRecordedEogThresholds_Click);
             //
             // chkBxVeogRejection
             //
@@ -2067,6 +2083,7 @@
         private System.Windows.Forms.TableLayoutPanel tblEogRejection;
         private System.Windows.Forms.Label lblEogRejectionProfile;
         private System.Windows.Forms.ComboBox cmbBxEogRejectionProfile;
+        private System.Windows.Forms.Button btnUseRecordedEogThresholds;
         private System.Windows.Forms.CheckBox chkBxVeogRejection;
         private System.Windows.Forms.CheckBox chkBxHeogRejection;
         private System.Windows.Forms.FlowLayoutPanel pnlVeogThreshold;

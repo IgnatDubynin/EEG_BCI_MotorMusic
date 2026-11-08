@@ -44,6 +44,8 @@ namespace PolyHubNet
         private EpochInfo _spectrumEpoch;
         private bool _bindingSpectrumClass;
         private bool _bindingEogRejectionUi;
+        // The editor changes this copy of the opened file's settings.
+        private EogRejectionSettings _recordingEogRejectionSettings;
         private CovertCalibrationEog _covertCalibrationEog;
         private ServiceSlot _covertCalibrationService;
         private long _covertCalibrationStartQpc, _covertCalibrationEndQpc;
@@ -418,7 +420,7 @@ namespace PolyHubNet
             string file = _openedRecordingFilePath;
             int classId = summary.ClassId;
             EpochInfo selectedEpoch = _spectrumEpoch;
-            EogRejection spectrumRejection = GetActiveEogRejection();
+            EogRejection spectrumRejection = GetRecordingEogRejection(classId);
             _ressSpatialGlView.SetSpectra(null, null, "Calculating spectra...");
             try
             {
@@ -783,7 +785,7 @@ namespace PolyHubNet
                 return;
             }
 
-            EogRejection trainingRejection = GetActiveEogRejection();
+            var trainingRejection = new EogRejection(_recordingEogRejectionSettings.GazeSelection);
             string sourceFile = _openedRecordingFilePath;
             string modelFolder = GetSsvepModelsFolder();
             Directory.CreateDirectory(modelFolder);
@@ -1070,7 +1072,6 @@ namespace PolyHubNet
             if (keyIndex >= 0 && _lastSentSsvepKeyIndex == keyIndex)
                 return;
 
-            // Each no-note window confirms release; NeuroPiano counts these commands.
             SendNeuroPianoCommand(keyIndex >= 0 ? 2003 : 2004, Math.Max(0, keyIndex), keyIndex >= 0 ? 1 : 0);
         }
 
@@ -1502,7 +1503,7 @@ namespace PolyHubNet
 
         private void PrepareViewerForPlayback(SignalStream playbackViewerStream)
         {
-            _viewerPlaybackMode = true;
+            SetViewerPlaybackMode(true);
             ResetPreviewStaticPageCache();
 
             _glScope.ExitPreviewStaticPageMode();
@@ -1550,13 +1551,18 @@ namespace PolyHubNet
 
             // EOG monitoring also works with an unloaded/unused model and
             // when the viewer route goes directly to the original recording.
-            if (_ssvepProcessor != null && GetActiveEogRejection().Enabled && _ssvepProcessor.InputStream == null)
-                _ssvepProcessor.AttachInput(_playbackStream);
+            if (_ssvepProcessor != null)
+            {
+                var gazeRejection = new EogRejection(_recordingEogRejectionSettings.GazeSelection);
+                _ssvepProcessor.SetEogRejection(gazeRejection);
+                if (gazeRejection.Enabled && _ssvepProcessor.InputStream == null)
+                    _ssvepProcessor.AttachInput(_playbackStream);
+            }
             PrepareViewerForPlayback(playbackViewerStream);
             ApplyHeogMarkupToPlayback(sourceStartQpc);
 
             var covertRejectedEpochs = new List<EpochInfo>();
-            var covertRejection = new EogRejection(_polyHubSettings.EogRejectionSettings.CovertAttention);
+            var covertRejection = new EogRejection(_recordingEogRejectionSettings.CovertAttention);
             foreach (EpochInfo epoch in _sessionReader.GetAllEpochs())
                 if (CovertCalibrationEog.IsCovertClass(epoch.ClassId) &&
                     CovertCalibrationEog.CheckRecordedEpoch(_sessionReader, epoch, covertRejection).IsRejected)
@@ -1730,11 +1736,10 @@ namespace PolyHubNet
                 _glScope.AddPreviewStaticEvent(pageSample, evt.Value0, evt.State);
             }
 
-            EogRejection pageRejection = GetActiveEogRejection();
             foreach (EpochInfo epoch in _sessionReader.GetAllEpochs())
             {
                 if (epoch.EndQpc < pageStartQpc || epoch.StartQpc > pageEndQpc) continue;
-                if (!CheckRecordedEpoch(_sessionReader, epoch, pageRejection).IsRejected) continue;
+                if (!CheckRecordedEpoch(_sessionReader, epoch, GetRecordingEogRejection(epoch.ClassId)).IsRejected) continue;
                 long first = (long)Math.Round((double)(epoch.StartQpc - pageStartQpc) * sampleRate / _qpcFreq);
                 long last = (long)Math.Round((double)(epoch.EndQpc - pageStartQpc) * sampleRate / _qpcFreq);
                 _glScope.AddPreviewRejectedInterval(first, last);
@@ -1782,11 +1787,10 @@ namespace PolyHubNet
                 _timeFrequencyGlView.AddRecordedEventMarker(
                     _sessionReader.FindSampleIndexByQpc(evt.QpcTimestamp), evt.Value0, evt.State);
             }
-            EogRejection rejection = GetActiveEogRejection();
             foreach (EpochInfo epoch in _sessionReader.GetAllEpochs())
             {
                 if (epoch.EndSampleIndex <= firstSample || epoch.StartSampleIndex >= rightSample) continue;
-                if (!CheckRecordedEpoch(_sessionReader, epoch, rejection).IsRejected) continue;
+                if (!CheckRecordedEpoch(_sessionReader, epoch, GetRecordingEogRejection(epoch.ClassId)).IsRejected) continue;
                 _timeFrequencyGlView.AddRecordedRejectedInterval(
                     Math.Max(firstSample, epoch.StartSampleIndex), Math.Min(rightSample, epoch.EndSampleIndex) - 1);
             }
@@ -2380,7 +2384,12 @@ namespace PolyHubNet
         private void ApplySavedRoutes(bool showErrorMessage)
         {
             if (_routeRuntimeController != null)
+            {
+                // Saved routes reconnect live service inputs.
+                if (_viewerPlaybackMode)
+                    ApplyLiveEogRejectionSettings();
                 _routeRuntimeController.ApplySavedRoutes(showErrorMessage, _viewerPlaybackMode);
+            }
 
             BuildTreeViewServices();
             BuildTreeViewPipeline();
@@ -2551,6 +2560,7 @@ namespace PolyHubNet
                 _sessionReader.Dispose();
                 _sessionReader = null;
             }
+            _recordingEogRejectionSettings = null;
 
             _playbackStream.SetChannelNames(null);
 
@@ -2665,11 +2675,11 @@ namespace PolyHubNet
                     _qpcFreq,
                     64L * 1024L * 1024L,
                     64L * 1024L * 1024L,
-                    sourceOutputSlot.ServiceDataOutputReader.ReadAcquisitionInfo());
+                    sourceOutputSlot.ServiceDataOutputReader.ReadAcquisitionInfo(),
+                    _polyHubSettings.EogRejectionSettings);
 
                 QueryPerformanceCounter(out _recordingUiStartQpc);
                 _recordingUiActive = true;
-                _viewerPlaybackMode = false;
                 UpdateMainStatusText();
 
                 lblPlaybackCurrentTime.Text = "00:00.000";
@@ -2767,18 +2777,26 @@ namespace PolyHubNet
                 return;
 
             if (!CloseOpenedRecordedSessionFile()) return;
-            _recordingUiActive = false;
+            var reader = new SessionReader();
+            try
+            {
+                reader.Open(dlg.FileName);
+            }
+            catch (Exception ex)
+            {
+                reader.Dispose();
+                StopPlaybackAndReturnViewerToLive();
+                MessageBox.Show(this, "Could not open recording: " + ex.Message, "PolyHubNET",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
 
-            if (_sessionPlayback != null)
-                _sessionPlayback.Stop();
-
-            if (_sessionReader != null)
-                _sessionReader.Dispose();
-
-            _sessionReader = new SessionReader();
-            _sessionReader.Open(dlg.FileName);
+            _sessionReader = reader;
             _openedRecordingFilePath = dlg.FileName;
+            _recordingEogRejectionSettings =
+                (reader.RecordedEogRejectionSettings ?? _polyHubSettings.EogRejectionSettings).Copy();
             Text = "PolyHubNET — " + Path.GetFileName(_openedRecordingFilePath);
+            if (_viewerPlaybackMode) ShowEogRejectionProfile();
 
             _playbackStream.SetChannelNames(_sessionReader.ChannelNames);
             AppendSsvepStatus("Opened recording: " + Path.GetFileName(dlg.FileName));
@@ -2963,7 +2981,8 @@ namespace PolyHubNet
                     return;
                 }
 
-                EogRejectionResult eogCheck = CheckRecordedEpoch(_sessionReader, epoch, GetActiveEogRejection(), epochBlock);
+                EogRejectionResult eogCheck = CheckRecordedEpoch(_sessionReader, epoch,
+                    GetRecordingEogRejection(epoch.ClassId), epochBlock);
 
                 int[] sourceIndices = ResolveSsvepModelChannelIndices(
                     _sessionReader.ChannelNames,
@@ -3047,7 +3066,7 @@ namespace PolyHubNet
 
         private void PrepareViewerForStaticPage(int channelsCount, int sampleRate, int timeBaseSeconds)
         {
-            _viewerPlaybackMode = true;
+            SetViewerPlaybackMode(true);
 
             // Static recording preview must not be mixed with live SSVEP analysis.
             if (_routeRuntimeController != null)
@@ -3201,7 +3220,8 @@ namespace PolyHubNet
 
             ResetPreviewStaticPageCache();
 
-            _viewerPlaybackMode = false;
+            SetViewerPlaybackMode(false);
+            ApplyLiveEogRejectionSettings();
 
             _glScope.ExitPreviewStaticPageMode();
             _glScope.SetFreezeTimeline(false);
@@ -3600,48 +3620,44 @@ namespace PolyHubNet
             if (_polyHubSettings.PolyHubUiSettings == null)
                 _polyHubSettings.PolyHubUiSettings = new PolyHubUiSettings();
 
-            int profileIndex = _polyHubSettings.PolyHubUiSettings.EogRejectionProfileIndex;
-            _bindingEogRejectionUi = true;
-            try
-            {
-                cmbBxEogRejectionProfile.SelectedIndex = profileIndex == 1 ? 1 : 0;
-            }
-            finally
-            {
-                _bindingEogRejectionUi = false;
-            }
-
-            _polyHubSettings.PolyHubUiSettings.EogRejectionProfileIndex =
-                cmbBxEogRejectionProfile.SelectedIndex;
             ShowEogRejectionProfile();
-            ApplyEogRejectionSettings();
+            ApplyLiveEogRejectionSettings();
         }
 
-        // The current SSVEP processor is the gaze-selection layer. The combo
-        // edits independent profiles; it is not a processing-mode switch.
-        private EogRejection GetActiveEogRejection()
+        private void SetViewerPlaybackMode(bool playback)
         {
-            return new EogRejection(_polyHubSettings.EogRejectionSettings.GazeSelection);
+            if (_viewerPlaybackMode == playback) return;
+            _viewerPlaybackMode = playback;
+            ShowEogRejectionProfile();
         }
 
-        private void ApplyEogRejectionSettings()
+        private void ApplyLiveEogRejectionSettings()
         {
-            InvalidatePerformance();
-            if (_ssvepProcessor != null)
-                _ssvepProcessor.SetEogRejection(GetActiveEogRejection());
+            if (_ssvepProcessor == null) return;
+            if (_playbackStream != null && ReferenceEquals(_ssvepProcessor.InputStream, _playbackStream))
+                _ssvepProcessor.DetachInput();
+            _ssvepProcessor.SetEogRejection(new EogRejection(_polyHubSettings.EogRejectionSettings.GazeSelection));
+        }
+
+        private EogRejection GetRecordingEogRejection(int classId)
+        {
+            return new EogRejection(CovertCalibrationEog.IsCovertClass(classId)
+                ? _recordingEogRejectionSettings.CovertAttention
+                : _recordingEogRejectionSettings.GazeSelection);
         }
 
         private void AppendEpochRejectionSummary()
         {
-            if (_sessionReader == null) return;
-            EogRejection rejection = GetActiveEogRejection();
+            if (_recordingEogRejectionSettings == null) return;
+            var gazeRejection = new EogRejection(_recordingEogRejectionSettings.GazeSelection);
+            var covertRejection = new EogRejection(_recordingEogRejectionSettings.CovertAttention);
             var epochs = _sessionReader.GetAllEpochs();
             int rejectedCount = 0;
-            bool enabled = rejection.Enabled;
+            bool enabled = gazeRejection.Enabled;
             foreach (EpochInfo epoch in epochs)
             {
-                if (CovertCalibrationEog.IsCovertClass(epoch.ClassId))
-                    enabled |= new EogRejection(_polyHubSettings.EogRejectionSettings.CovertAttention).Enabled;
+                EogRejection rejection = CovertCalibrationEog.IsCovertClass(epoch.ClassId) ? covertRejection : gazeRejection;
+                enabled |= rejection.Enabled;
                 if (CheckRecordedEpoch(_sessionReader, epoch, rejection).IsRejected) rejectedCount++;
             }
             AppendSsvepStatus("Rejected epochs: " + rejectedCount + " / " + epochs.Count +
@@ -3650,13 +3666,12 @@ namespace PolyHubNet
 
         private void RefreshEpochRejection()
         {
-            if (_sessionReader == null) return;
-            EogRejection rejection = GetActiveEogRejection();
+            if (_recordingEogRejectionSettings == null) return;
             foreach (System.Windows.Forms.DataGridViewRow row in dataGridViewEpochs.Rows)
             {
                 EpochInfo epoch = row.DataBoundItem as EpochInfo;
                 if (epoch == null) continue;
-                EogRejectionResult check = CheckRecordedEpoch(_sessionReader, epoch, rejection);
+                EogRejectionResult check = CheckRecordedEpoch(_sessionReader, epoch, GetRecordingEogRejection(epoch.ClassId));
                 row.Tag = check;
                 row.DefaultCellStyle.ForeColor = check.IsRejected ? System.Drawing.Color.Gray : dataGridViewEpochs.ForeColor;
                 row.DefaultCellStyle.SelectionForeColor = check.IsRejected ? System.Drawing.Color.Silver : dataGridViewEpochs.DefaultCellStyle.SelectionForeColor;
@@ -3696,17 +3711,23 @@ namespace PolyHubNet
 
         private EogRejectionProfileSettings GetEditedEogRejectionProfile()
         {
-            return cmbBxEogRejectionProfile.SelectedIndex == 1
-                ? _polyHubSettings.EogRejectionSettings.CovertAttention
-                : _polyHubSettings.EogRejectionSettings.GazeSelection;
+            var settings = _viewerPlaybackMode && _recordingEogRejectionSettings != null
+                ? _recordingEogRejectionSettings : _polyHubSettings.EogRejectionSettings;
+            return cmbBxEogRejectionProfile.SelectedIndex == 1 ? settings.CovertAttention : settings.GazeSelection;
         }
 
         private void ShowEogRejectionProfile()
         {
-            EogRejectionProfileSettings profile = GetEditedEogRejectionProfile();
             _bindingEogRejectionUi = true;
             try
             {
+                bool hasRecordedThresholds = _viewerPlaybackMode && _sessionReader?.RecordedEogRejectionSettings != null;
+                grpBxEogRejection.Text = !_viewerPlaybackMode ? "EOG Rejection — live"
+                    : hasRecordedThresholds ? "EOG Rejection — recording" : "EOG Rejection — thresholds not recorded";
+                btnUseRecordedEogThresholds.Visible = hasRecordedThresholds;
+                if (!_viewerPlaybackMode)
+                    cmbBxEogRejectionProfile.SelectedIndex = _polyHubSettings.PolyHubUiSettings.EogRejectionProfileIndex == 1 ? 1 : 0;
+                EogRejectionProfileSettings profile = GetEditedEogRejectionProfile();
                 chkBxVeogRejection.Checked = profile.VeogEnabled;
                 chkBxHeogRejection.Checked = profile.HeogEnabled;
                 numUpDwnVeogThreshold.Value = (decimal)profile.VeogPeakToPeakThresholdMicrovolts;
@@ -3725,15 +3746,17 @@ namespace PolyHubNet
             if (_bindingEogRejectionUi || _polyHubSettings == null)
                 return;
 
+            if (!_viewerPlaybackMode)
+            {
+                _polyHubSettings.PolyHubUiSettings.EogRejectionProfileIndex = cmbBxEogRejectionProfile.SelectedIndex;
+                SaveEogRejectionSettings();
+            }
             ShowEogRejectionProfile();
-            _polyHubSettings.PolyHubUiSettings.EogRejectionProfileIndex =
-                cmbBxEogRejectionProfile.SelectedIndex;
-            SaveEogRejectionSettings();
         }
 
         private void EogRejectionSettings_Changed(object sender, EventArgs e)
         {
-            if (_bindingEogRejectionUi || _polyHubSettings == null)
+            if (_bindingEogRejectionUi || _polyHubSettings == null || !grpBxEogRejection.Enabled)
                 return;
 
             EogRejectionProfileSettings profile = GetEditedEogRejectionProfile();
@@ -3743,8 +3766,18 @@ namespace PolyHubNet
             profile.HeogFixationDeviationThresholdMicrovolts = (double)numUpDwnHeogThreshold.Value;
             numUpDwnVeogThreshold.Enabled = profile.VeogEnabled;
             numUpDwnHeogThreshold.Enabled = profile.HeogEnabled;
+            if (_viewerPlaybackMode)
+            {
+                RefreshRecordedEogRejection();
+                return;
+            }
+
             SaveEogRejectionSettings();
-            if (cmbBxEogRejectionProfile.SelectedIndex == 1 && _covertCalibrationEog != null)
+            if (cmbBxEogRejectionProfile.SelectedIndex != 1)
+            {
+                ApplyLiveEogRejectionSettings();
+            }
+            else if (_covertCalibrationEog != null)
             {
                 try { _covertCalibrationEog.SetRejection(new EogRejection(profile)); }
                 catch (Exception ex)
@@ -3754,13 +3787,24 @@ namespace PolyHubNet
                     StopCovertCalibrationMonitor();
                 }
             }
-            if (cmbBxEogRejectionProfile.SelectedIndex != 1) ApplyEogRejectionSettings();
+        }
+
+        private void btnUseRecordedEogThresholds_Click(object sender, EventArgs e)
+        {
+            var settings = _sessionReader?.RecordedEogRejectionSettings;
+            if (!_viewerPlaybackMode || settings == null || !grpBxEogRejection.Enabled) return;
+            _recordingEogRejectionSettings = settings.Copy();
+            ShowEogRejectionProfile();
+            RefreshRecordedEogRejection();
+        }
+
+        private void RefreshRecordedEogRejection()
+        {
+            InvalidatePerformance();
             RefreshEpochRejection();
             AppendEpochRejectionSummary();
             ResetPreviewStaticPageCache();
-            if (_viewerPlaybackMode && _sessionReader != null &&
-                (_sessionPlayback == null || !_sessionPlayback.IsPlaying))
-                PreviewRecordingAtSourceQpc(ConvertTrackBarValueToPlaybackQpc(trackBarPlayback.Value));
+            PreviewRecordingAtSourceQpc(ConvertTrackBarValueToPlaybackQpc(trackBarPlayback.Value));
             AnalyzeCurrentSelectedEpochForSsvep();
             RefreshSpatialSpectra();
         }
@@ -3841,13 +3885,12 @@ namespace PolyHubNet
                 result.Rejection.Reason ?? "Accepted", result.EndQpc);
         }
 
-        private EogRejectionResult CheckRecordedEpoch(SessionReader reader, EpochInfo epoch,
-            EogRejection gazeRejection, SignalBlock block = null)
+        private static EogRejectionResult CheckRecordedEpoch(SessionReader reader, EpochInfo epoch,
+            EogRejection rejection, SignalBlock block = null)
         {
             if (CovertCalibrationEog.IsCovertClass(epoch.ClassId))
-                return CovertCalibrationEog.CheckRecordedEpoch(reader, epoch,
-                    new EogRejection(_polyHubSettings.EogRejectionSettings.CovertAttention));
-            return gazeRejection.Check(block ?? reader.ReadEpochAsSingleBlock(epoch), reader.ChannelNames);
+                return CovertCalibrationEog.CheckRecordedEpoch(reader, epoch, rejection);
+            return rejection.Check(block ?? reader.ReadEpochAsSingleBlock(epoch), reader.ChannelNames);
         }
 
         private void SaveEogRejectionSettings()
@@ -4115,7 +4158,8 @@ namespace PolyHubNet
                 " | Radius × " + run.Model.ClassAcceptanceRadiusMultiplier.ToString("0.###") +
                 " | BG margin " + run.Model.BackgroundRejectionLogOddsMargin.ToString("0.###") +
                 " | Processed " + run.Decisions.Count + ", selected " + run.AnnotatedDecisions + ", scored for AUC " + run.ScoredDecisions + Environment.NewLine +
-                "Window accuracy " + SsvepPerformance.Value(run.AnnotatedDecisions > 0 ? 100.0 * run.CorrectDecisions / run.AnnotatedDecisions : double.NaN, "0.0") + "% | Mean AUC " + SsvepPerformance.Value(run.MacroAuc) +
+                "Played target " + run.SuccessfulAttempts + "/" + run.TargetAttempts + " (" + SsvepPerformance.Value(100.0 * run.SuccessRate, "0.0") + "%)" +
+                " | First choice " + SsvepPerformance.Value(100.0 * run.FirstSelectionAccuracy, "0.0") + "% | Window accuracy " + SsvepPerformance.Value(run.AnnotatedDecisions > 0 ? 100.0 * run.CorrectDecisions / run.AnnotatedDecisions : double.NaN, "0.0") + "% | Mean AUC " + SsvepPerformance.Value(run.MacroAuc) +
                 " | Estimated ITR " + SsvepPerformance.Value(run.EstimatedItr, "0.0") + " bit/min (selection time; no gaze shift)";
             performancePlot.Invalidate(); PerformanceViewChanged(null, EventArgs.Empty);
         }
@@ -4139,12 +4183,12 @@ namespace PolyHubNet
                 var model = SsvepPerformance.Snapshot(active);
                 var markup = SsvepPerformance.Snapshot(_heogMarkup);
                 var heog = SsvepPerformance.Snapshot(_polyHubSettings.HeogMarkupSettings);
-                var eog = SsvepPerformance.Snapshot(_polyHubSettings.EogRejectionSettings.GazeSelection);
+                var eog = _recordingEogRejectionSettings.GazeSelection.Copy();
                 string path = _openedRecordingFilePath, modelPath = _activeSsvepModelPath;
                 bool log = chkPerformanceLog.Checked;
                 _performanceRunning = true;
                 UpdateRecordingAnalysisUi();
-                btnHeogMarkup.Enabled = numHeogMarkupRange.Enabled = grpBxSsvepModel.Enabled = grpBxEogRejection.Enabled = chkPerformanceLog.Enabled = false;
+                btnHeogMarkup.Enabled = numHeogMarkupRange.Enabled = grpBxSsvepModel.Enabled = chkPerformanceLog.Enabled = false;
                 prgHeogMarkup.Value = 0; prgHeogMarkup.Visible = statusHeogMarkup.Visible = true;
                 statusHeogMarkup.Text = "SSVEP analysis: 0%";
                 var progress = new Progress<int>(value =>
@@ -4173,7 +4217,7 @@ namespace PolyHubNet
             finally
             {
                 _performanceRunning = false; UpdateRecordingAnalysisUi();
-                btnHeogMarkup.Enabled = numHeogMarkupRange.Enabled = grpBxSsvepModel.Enabled = grpBxEogRejection.Enabled = chkPerformanceLog.Enabled = true;
+                btnHeogMarkup.Enabled = numHeogMarkupRange.Enabled = grpBxSsvepModel.Enabled = chkPerformanceLog.Enabled = true;
                 prgHeogMarkup.Visible = statusHeogMarkup.Visible = false;
             }
         }
@@ -4575,6 +4619,8 @@ namespace PolyHubNet
         private void UpdateRecordingAnalysisUi()
         {
             UpdateSessionButtons();
+            grpBxEogRejection.Enabled = !RecordingAnalysisBusy && !_recordingUiActive &&
+                (_sessionPlayback == null || !_sessionPlayback.IsPlaying);
             btnPerformanceAnalyze.Enabled = !RecordingAnalysisBusy;
             UpdateAcceptanceSettingsUi();
             tlStrpSaveAnalysis.Enabled = !RecordingAnalysisBusy && !_recordingUiActive && _sessionReader != null &&

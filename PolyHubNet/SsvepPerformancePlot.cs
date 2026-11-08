@@ -234,8 +234,6 @@ namespace PolyHubNet
                         d.Result.IsRejected ? "EOG rejected" : "No note") +
                     "\nHeld key: " + (d.HeldNote > 0 ? SsvepPerformance.Note(d.HeldNote).ToString() : "None") +
                     (d.NewSelection ? "\nNew selection" : d.Released ? "\nKey released" : "") +
-                    (d.Prediction == 0 && d.Result.CandidateClassId.HasValue && !d.Result.IsRejected ?
-                        "\nNo-note count: " + d.NoNoteCount + "/" + SsvepPerformance.ReleaseConfirmationCount : "") +
                     "\nEEG window: " + Time((double)(d.Result.WindowStartQpc - data.SourceFirstQpc) / data.SourceQpcFrequency) +
                     " - " + Time(d.Seconds);
             }

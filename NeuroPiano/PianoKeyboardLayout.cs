@@ -10,10 +10,15 @@ namespace NeuroPiano
 
         private const float BlackKeyWidthFactor = 0.62f;
         private const float BlackKeyHeightFactor = 0.62f;
+        internal const float KeyboardBorderWidth = 2.0f;
+        private const float KeyFrontHeightFraction = 0.05f;
+        private const float WhiteKeyFrontHeightFraction =
+            KeyFrontHeightFraction * (BlackKeyWidthFactor * BlackKeyHeightFactor);
 
         private readonly List<PianoKey> _whiteKeys = new List<PianoKey>();
         private readonly List<PianoKey> _blackKeys = new List<PianoKey>();
         private readonly List<RectangleF> _backgroundTargets = new List<RectangleF>(BackgroundTargetCount);
+        private readonly List<RectangleF> _backgroundCueBounds = new List<RectangleF>(BackgroundTargetCount);
 
         public IList<PianoKey> WhiteKeys
         {
@@ -43,9 +48,19 @@ namespace NeuroPiano
             _whiteKeys.Clear();
             _blackKeys.Clear();
             _backgroundTargets.Clear();
+            _backgroundCueBounds.Clear();
 
             if (bounds.Width <= 1.0f || bounds.Height <= 1.0f)
                 return;
+
+            float bottom = bounds.Bottom;
+            float topBottom = GetKeyTopBounds(bounds, WhiteKeyFrontHeightFraction).Bottom;
+            // The keyboard outline covers the last row of the white key.
+            float visibleRows = (float)(Math.Ceiling(bottom - 0.5f) -
+                Math.Ceiling(topBottom - 0.5f)) - KeyboardBorderWidth * 0.5f;
+            float pressedFrontHeight = Math.Max(0.0f, Math.Min(visibleRows, bottom - topBottom)) /
+                BlackKeyWidthFactor;
+            pressedFrontHeight += 1.0f;
 
             float whiteKeyWidth = bounds.Width / PianoNotes.VisibleWhiteKeyCount;
             float viewportWorldLeft = FirstVisibleWhiteKeyIndex;
@@ -55,15 +70,32 @@ namespace NeuroPiano
                  midiNumber++)
             {
                 if (PianoNotes.IsBlackKey(midiNumber))
-                    AddBlackKey(bounds, whiteKeyWidth, viewportWorldLeft, midiNumber);
+                    AddBlackKey(bounds, whiteKeyWidth, viewportWorldLeft, midiNumber, pressedFrontHeight);
                 else
-                    AddWhiteKey(bounds, whiteKeyWidth, viewportWorldLeft, midiNumber);
+                    AddWhiteKey(bounds, whiteKeyWidth, viewportWorldLeft, midiNumber, pressedFrontHeight);
             }
+
+            foreach (PianoKey key in _blackKeys)
+            {
+                PianoKey left = FindByMidi(key.MidiNumber - 1);
+                PianoKey right = FindByMidi(key.MidiNumber + 1);
+                if (left != null)
+                    key.LeftSplitX = Math.Min(left.Bounds.Right, key.Bounds.Right);
+                if (right != null)
+                    key.RightSplitX = Math.Max(right.Bounds.Left, key.Bounds.Left);
+            }
+        }
+
+        private static RectangleF GetKeyTopBounds(RectangleF bounds, float frontHeightFraction)
+        {
+            bounds.Height *= 1.0f - frontHeightFraction;
+            return bounds;
         }
 
         public void BuildBackgroundTargets(RectangleF viewportBounds)
         {
             _backgroundTargets.Clear();
+            _backgroundCueBounds.Clear();
 
             if (Bounds.Width <= 1.0f || Bounds.Height <= 1.0f)
                 return;
@@ -89,13 +121,30 @@ namespace NeuroPiano
                     float centerX = Bounds.Left +
                         Bounds.Width * (column + 1) / (targetsPerRow + 1);
 
-                    _backgroundTargets.Add(new RectangleF(
+                    var target = new RectangleF(
                         centerX - width * 0.5f,
                         centerY - height * 0.5f,
                         width,
-                        height));
+                        height);
+                    _backgroundTargets.Add(target);
+                    _backgroundCueBounds.Add(GetCueBounds(target));
                 }
             }
+        }
+
+        internal RectangleF GetBackgroundCueBounds(int index)
+        {
+            return _backgroundCueBounds[index];
+        }
+
+        private static RectangleF GetCueBounds(RectangleF bounds)
+        {
+            const float inset = 3.0f;
+            return new RectangleF(
+                bounds.Left + inset,
+                bounds.Top + inset,
+                bounds.Width - inset * 2.0f,
+                bounds.Height - inset * 2.0f);
         }
 
         public PianoKey HitTest(float x, float y)
@@ -140,7 +189,8 @@ namespace NeuroPiano
             RectangleF bounds,
             float whiteKeyWidth,
             float viewportWorldLeft,
-            int midiNumber)
+            int midiNumber,
+            float pressedFrontHeight)
         {
             float worldLeft = GetWhiteKeyWorldLeft(midiNumber);
             float screenLeft = bounds.Left + (worldLeft - viewportWorldLeft) * whiteKeyWidth;
@@ -155,20 +205,50 @@ namespace NeuroPiano
             if (!TryClip(rawBounds, bounds, out visibleBounds))
                 return;
 
-            _whiteKeys.Add(new PianoKey
+            // Match the area a black key would cover on either side.
+            float maskWidth = whiteKeyWidth * BlackKeyWidthFactor * 0.5f;
+            float maskHeight = bounds.Height * BlackKeyHeightFactor;
+
+            var key = new PianoKey
             {
                 MidiNumber = midiNumber,
                 NoteName = PianoNotes.GetNoteName(midiNumber),
                 IsBlack = false,
-                Bounds = visibleBounds
-            });
+                Bounds = visibleBounds,
+                LeftFlickerMask = GetFlickerMask(midiNumber - 1,
+                    new RectangleF(rawBounds.Left, rawBounds.Top, maskWidth, maskHeight), visibleBounds),
+                RightFlickerMask = GetFlickerMask(midiNumber + 1,
+                    new RectangleF(rawBounds.Right - maskWidth, rawBounds.Top, maskWidth, maskHeight), visibleBounds)
+            };
+            key.PressedLeftFlickerMask = ExtendFlickerMask(key.LeftFlickerMask, pressedFrontHeight);
+            key.PressedRightFlickerMask = ExtendFlickerMask(key.RightFlickerMask, pressedFrontHeight);
+            SetKeyProjection(key, WhiteKeyFrontHeightFraction);
+            key.CueBounds = GetCueBounds(key.TopBounds);
+            key.PressedCueBounds = GetCueBounds(key.Bounds);
+            _whiteKeys.Add(key);
+        }
+
+        private static RectangleF ExtendFlickerMask(RectangleF mask, float pressedFrontHeight)
+        {
+            if (!mask.IsEmpty)
+                mask.Height += pressedFrontHeight;
+            return mask;
+        }
+
+        private static RectangleF GetFlickerMask(int adjacentMidiNumber, RectangleF mask, RectangleF keyBounds)
+        {
+            if (PianoNotes.IsInRange(adjacentMidiNumber) && PianoNotes.IsBlackKey(adjacentMidiNumber))
+                return RectangleF.Empty;
+
+            return RectangleF.Intersect(mask, keyBounds);
         }
 
         private void AddBlackKey(
             RectangleF bounds,
             float whiteKeyWidth,
             float viewportWorldLeft,
-            int midiNumber)
+            int midiNumber,
+            float pressedFrontHeight)
         {
             float worldCenter = GetBlackKeyWorldCenter(midiNumber);
             float screenCenter = bounds.Left + (worldCenter - viewportWorldLeft) * whiteKeyWidth;
@@ -186,27 +266,30 @@ namespace NeuroPiano
             if (!TryClip(rawBounds, bounds, out visibleBounds))
                 return;
 
-            _blackKeys.Add(new PianoKey
+            var key = new PianoKey
             {
                 MidiNumber = midiNumber,
                 NoteName = PianoNotes.GetNoteName(midiNumber),
                 IsBlack = true,
-                Bounds = visibleBounds
-            });
+                Bounds = visibleBounds,
+                ExtendedFrontBottom = visibleBounds.Bottom + pressedFrontHeight
+            };
+            SetKeyProjection(key, KeyFrontHeightFraction);
+            _blackKeys.Add(key);
+        }
+
+        private static void SetKeyProjection(PianoKey key, float frontHeightFraction)
+        {
+            RectangleF bounds = key.Bounds;
+            key.TopBounds = GetKeyTopBounds(bounds, frontHeightFraction);
+            float topBottom = key.TopBounds.Bottom;
+            key.FrontBounds = new RectangleF(bounds.Left, topBottom, bounds.Width, bounds.Bottom - topBottom);
         }
 
         private static bool TryClip(RectangleF source, RectangleF clip, out RectangleF result)
         {
             result = RectangleF.Intersect(source, clip);
             return result.Width > 0.0f && result.Height > 0.0f;
-        }
-
-        private static float GetKeyWorldCenter(int midiNumber)
-        {
-            if (PianoNotes.IsBlackKey(midiNumber))
-                return GetBlackKeyWorldCenter(midiNumber);
-
-            return GetWhiteKeyWorldLeft(midiNumber) + 0.5f;
         }
 
         private static float GetWhiteKeyWorldLeft(int midiNumber)

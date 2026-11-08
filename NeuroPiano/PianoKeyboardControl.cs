@@ -46,8 +46,7 @@ namespace NeuroPiano
         private int _activeStimulusVisibleIndex = -1;
         private int _attentionCueVisibleIndex = -1;
         private int _backgroundCueVisibleIndex = -1;
-        private int _feedbackVisibleIndex = -1;
-        private bool _manualInputEnabled = true;
+        private bool _playInputEnabled = true;
 
         public event Action<PianoKey> NotePressed;
         public event Action<PianoKey> NoteReleased;
@@ -160,41 +159,22 @@ namespace NeuroPiano
             }
         }
 
-        public int FeedbackVisibleIndex
+        public bool PlayInputEnabled
         {
             get
             {
-                return _feedbackVisibleIndex;
+                return _playInputEnabled;
             }
             set
             {
-                if (value < -1 || value > 7)
-                    value = -1;
-
-                if (_feedbackVisibleIndex == value)
+                if (_playInputEnabled == value)
                     return;
 
-                _feedbackVisibleIndex = value;
-                Invalidate();
-            }
-        }
+                _playInputEnabled = value;
 
-        public bool ManualInputEnabled
-        {
-            get
-            {
-                return _manualInputEnabled;
-            }
-            set
-            {
-                if (_manualInputEnabled == value)
-                    return;
-
-                _manualInputEnabled = value;
-
-                if (!_manualInputEnabled)
+                if (!_playInputEnabled)
                 {
-                    ReleaseCurrentKey();
+                    SetPressedKey(null);
                     Capture = false;
                 }
             }
@@ -217,7 +197,7 @@ namespace NeuroPiano
         {
             base.OnKeyDown(e);
 
-            if (!_manualInputEnabled)
+            if (!_playInputEnabled)
                 return;
 
             if (e.KeyCode == Keys.Left)
@@ -360,7 +340,6 @@ namespace NeuroPiano
                 _ssvepStimulusEngine,
                 _activeStimulusVisibleIndex,
                 _attentionCueVisibleIndex,
-                _feedbackVisibleIndex,
                 _backgroundCueVisibleIndex,
                 AttentionCueIsPeripheral);
 
@@ -374,45 +353,36 @@ namespace NeuroPiano
         {
             base.OnMouseDown(e);
 
-            if (!_manualInputEnabled)
+            if (!_playInputEnabled)
                 return;
 
             if (e.Button != MouseButtons.Left)
                 return;
 
             Capture = true;
-            PressKeyAt(e.X, e.Y);
+            PianoKey key = _keyboardLayout.HitTest(e.X, e.Y);
+            if (key != null)
+                SetPressedKey(key);
         }
 
         protected override void OnMouseMove(MouseEventArgs e)
         {
             base.OnMouseMove(e);
 
-            if (!_manualInputEnabled)
+            if (!_playInputEnabled)
                 return;
 
             if ((e.Button & MouseButtons.Left) == 0 || !Capture)
                 return;
 
-            PianoKey key = _keyboardLayout.HitTest(e.X, e.Y);
-            if (key == null)
-            {
-                ReleaseCurrentKey();
-                return;
-            }
-
-            if (key.MidiNumber == _pressedMidiNumber)
-                return;
-
-            ReleaseCurrentKey();
-            PressKey(key);
+            SetPressedKey(_keyboardLayout.HitTest(e.X, e.Y));
         }
 
         protected override void OnMouseUp(MouseEventArgs e)
         {
             base.OnMouseUp(e);
 
-            if (!_manualInputEnabled)
+            if (!_playInputEnabled)
                 return;
 
             if (e.Button != MouseButtons.Left)
@@ -432,57 +402,50 @@ namespace NeuroPiano
 
         public void PressVisibleWhiteKey(int visibleIndex)
         {
-            if (visibleIndex < 0 ||
-                visibleIndex >= _keyboardLayout.WhiteKeys.Count)
-            {
-                return;
-            }
-
-            PianoKey key =
-                _keyboardLayout.WhiteKeys[visibleIndex];
-
-            if (_pressedMidiNumber == key.MidiNumber)
+            if (!_playInputEnabled ||
+                visibleIndex < 0 || visibleIndex >= _keyboardLayout.WhiteKeys.Count)
                 return;
 
-            ReleaseCurrentKey();
-            PressKey(key);
+            SetPressedKey(_keyboardLayout.WhiteKeys[visibleIndex]);
         }
 
         public void ReleaseCurrentKey()
         {
-            if (_pressedMidiNumber < 0)
-                return;
-
-            PianoKey key = _keyboardLayout.FindByMidi(_pressedMidiNumber);
-            _pressedMidiNumber = -1;
-            Invalidate();
-
-            Action<PianoKey> handler = NoteReleased;
-            if (key != null && handler != null)
-                handler(key);
+            if (_playInputEnabled)
+                SetPressedKey(null);
         }
 
-        private void PressKeyAt(int x, int y)
+        internal void SetCalibrationPressedKey(int visibleIndex)
         {
-            PianoKey key = _keyboardLayout.HitTest(x, y);
-            if (key == null)
-                return;
-
-            if (_pressedMidiNumber == key.MidiNumber)
-                return;
-
-            ReleaseCurrentKey();
-            PressKey(key);
+            PianoKey key = visibleIndex >= 0 && visibleIndex < _keyboardLayout.WhiteKeys.Count
+                ? _keyboardLayout.WhiteKeys[visibleIndex]
+                : null;
+            // Calibration publishes its own trial events and plays feedback on schedule.
+            SetPressedKey(key, raiseNoteEvents: false);
         }
 
-        private void PressKey(PianoKey key)
+        private void SetPressedKey(PianoKey key, bool raiseNoteEvents = true)
         {
-            _pressedMidiNumber = key.MidiNumber;
+            int midiNumber = key?.MidiNumber ?? -1;
+            if (_pressedMidiNumber == midiNumber)
+                return;
+
+            if (raiseNoteEvents && _pressedMidiNumber >= 0)
+            {
+                PianoKey releasedKey = _keyboardLayout.FindByMidi(_pressedMidiNumber);
+                _pressedMidiNumber = -1;
+                Invalidate();
+                if (releasedKey != null)
+                    NoteReleased?.Invoke(releasedKey);
+                if (key == null)
+                    return;
+            }
+
+            _pressedMidiNumber = midiNumber;
             Invalidate();
 
-            Action<PianoKey> handler = NotePressed;
-            if (handler != null)
-                handler(key);
+            if (raiseNoteEvents && key != null)
+                NotePressed?.Invoke(key);
         }
 
         private void SetupOpenGl()

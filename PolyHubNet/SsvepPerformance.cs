@@ -15,7 +15,7 @@ namespace PolyHubNet
         public int? TargetLabel;
         public int Target = -1, Prediction, AttemptIndex = -1;
         public bool NewSelection, Released;
-        public int HeldNote, NoNoteCount;
+        public int HeldNote;
     }
 
     public sealed class SsvepPerformanceAttempt
@@ -65,9 +65,8 @@ namespace PolyHubNet
 
     public sealed class SsvepPerformance
     {
-        public const int ReleaseConfirmationCount = 3;
-        private int _noNoteCount;
         public static readonly int[] Notes = { 41, 43, 45, 47, 48, 50, 52, 53 };
+        private const int NoNoteCommandsBeforeRelease = 3;
         private static readonly CultureInfo C = CultureInfo.InvariantCulture;
         public SsvepModel Model;
         public string SourcePath, ModelPath, LogError;
@@ -87,6 +86,9 @@ namespace PolyHubNet
         public double MacroAuc { get { return NotesRoc.All(r => r != null && Finite(r.Auc)) ? NotesRoc.Average(r => r.Auc) : double.NaN; } }
         public int AnnotatedDecisions { get { return Decisions.Count(d => d.Target >= 0); } }
         public int CorrectDecisions { get { return Decisions.Count(d => d.Target >= 0 && d.Target == d.Prediction); } }
+        public int TargetAttempts { get { return Attempts.Count(a => a.Target > 0); } }
+        public int SuccessfulAttempts { get { return Attempts.Count(a => a.Target > 0 && a.FirstCorrect > 0); } }
+        public double SuccessRate { get { return TargetAttempts > 0 ? (double)SuccessfulAttempts / TargetAttempts : double.NaN; } }
         public static bool Finite(double n) { return !double.IsNaN(n) && !double.IsInfinity(n); }
         public static int Note(int index) { return index > 0 ? Notes[index - 1] : 0; }
         public static int TargetIndex(int label)
@@ -140,8 +142,8 @@ namespace PolyHubNet
                 {
                     var source = new SignalStream("Offline source"); source.SetChannelNames(reader.ChannelNames);
                     processor.SetModel(model); processor.SetEogRejection(rejection); processor.AttachInput(source); processor.Reset();
-                    int attemptIndex = 0, heldNote = 0;
-                    processor.AnalysisReady += result => run.RecordDecision(result, ref attemptIndex, ref heldNote);
+                    int attemptIndex = 0, heldNote = 0, noNoteCount = 0;
+                    processor.AnalysisReady += result => run.RecordDecision(result, ref attemptIndex, ref heldNote, ref noNoteCount);
                     int reported = -1;
                     for (int index = 0; index < reader.BlockCount; index++)
                     {
@@ -161,7 +163,7 @@ namespace PolyHubNet
             return run;
         }
 
-        internal void RecordDecision(SsvepAnalysisResult result, ref int attemptIndex, ref int heldNote)
+        internal void RecordDecision(SsvepAnalysisResult result, ref int attemptIndex, ref int heldNote, ref int noNoteCount)
         {
             long lastSample = result.WindowEndSampleIndexExclusive - 1;
             while (attemptIndex < Attempts.Count && lastSample >= Attempts[attemptIndex].EndSample) attemptIndex++;
@@ -170,18 +172,20 @@ namespace PolyHubNet
                 Prediction = result.PredictedClassId.HasValue ? result.PredictedClassId.Value - 1200 : 0 };
             if (decision.Prediction > 0)
             {
-                _noNoteCount = 0;
+                noNoteCount = 0;
                 decision.NewSelection = decision.Prediction != heldNote;
                 heldNote = decision.Prediction;
             }
             else if (!result.IsRejected && result.CandidateClassId.HasValue)
             {
-                if (_noNoteCount < ReleaseConfirmationCount) _noNoteCount++;
-                if (_noNoteCount == ReleaseConfirmationCount)
-                { decision.Released = heldNote > 0; heldNote = 0; }
+                noNoteCount = Math.Min(noNoteCount + 1, NoNoteCommandsBeforeRelease);
+                if (noNoteCount == NoNoteCommandsBeforeRelease)
+                {
+                    decision.Released = heldNote > 0;
+                    heldNote = 0;
+                }
             }
             decision.HeldNote = heldNote;
-            decision.NoNoteCount = _noNoteCount;
             if (attemptIndex < Attempts.Count && lastSample >= Attempts[attemptIndex].StartSample)
             {
                 var attempt = Attempts[attemptIndex];
@@ -259,7 +263,7 @@ namespace PolyHubNet
             {
                 using (var writer = new StreamWriter(temporary, false, new UTF8Encoding(true)))
                 {
-                    writer.WriteLine("# PolyHub performance CSV v2; UTF-8; comma-separated; # lines contain metadata and summaries");
+                    writer.WriteLine("# PolyHub performance CSV v3; UTF-8; comma-separated; # lines contain metadata and summaries");
                     writer.WriteLine("# Source," + Cell(Path.GetFileName(SourcePath)));
                     writer.WriteLine("# SourceFormat," + SourceSampleRate + "," + SourceTotalSamples + "," + SourceCommittedBytes + "," + SourceQpcFrequency + "," + SourceFirstQpc);
                     writer.WriteLine("# SourceChannelsJson," + Cell(Json(SourceChannels)));
@@ -270,7 +274,9 @@ namespace PolyHubNet
                     writer.WriteLine("# ClassMap,1201=41,1202=43,1203=45,1204=47,1205=48,1206=50,1207=52,1208=53; squares 9..14=background; output 0=no command");
                     writer.WriteLine("# WindowRule,Continuous existing SsvepProcessor from recording start; original blocks/sequences; model windows; no fixation reset or padding; CSV rows contain selected decisions only");
                     writer.WriteLine("# TargetRule,Last EEG sample must be inside a labeled stable HEOG interval [start; end); gaps and unassigned intervals excluded from metrics and CSV; EEG window may start before the interval");
-                    writer.WriteLine("# SelectionRule,Release held key after " + ReleaseConfirmationCount + " consecutive classified no-command results; accepted note resets release count; rejected/unprocessed windows do not count; repeated held note is not a new selection; first selection and first correct selection are separate");
+                    writer.WriteLine("# ReleaseNoNoteCommands," + NoNoteCommandsBeforeRelease);
+                    writer.WriteLine("# SelectionRule,Release after " + NoNoteCommandsBeforeRelease + " consecutive classified no-note commands; any accepted note resets the count; EOG-rejected and unprocessed windows leave the key and count unchanged; a different accepted note switches immediately; repeated held note is not a new selection");
+                    writer.WriteLine("# SuccessRule,A target attempt succeeds if its target note is played at least once during the labeled interval; first-choice accuracy is reported separately; holding does not count as repeated note-on events");
                     writer.WriteLine("# AUCMethod,Binary one-note versus seven others and separately versus background; actual finite signed margins; tied scores grouped; trapezoidal ROC area; no score imputation; overlapping windows are not independent trials");
                     writer.WriteLine("# ITRMethod,Estimated Wolpaw 8-target bits/min; first NEW selection per note attempt; omissions counted as errors with full attempt time; below-chance floored to 0; time starts at fixation and excludes gaze-shift and GUI/IPC latency; assumptions of uniform targets/errors and memoryless trials are approximate");
                     writer.WriteLine("# References,https://scikit-learn.org/stable/modules/generated/sklearn.metrics.roc_curve.html; https://pmc.ncbi.nlm.nih.gov/articles/PMC4185283/");
@@ -278,6 +284,7 @@ namespace PolyHubNet
                     writer.Write("StartSample,EndSampleExclusive,StartSeconds,EndSeconds,Attempt,TargetLabel,TargetNote,CandidateClassId,CandidateNote,PredictedClassId,PredictedNote,NewSelection,Correct,AcceptanceDistanceRatio,BackgroundLogOdds,NoCommandReason");
                     foreach (int id in Model.ClassIds) writer.Write(",Margin_" + Note(id - 1200));
                     for (int j = 0; j < Model.FeatureCount; j++) writer.Write(",Feature_" + (j + 1));
+                    writer.Write(",HeldNote,Released");
                     writer.WriteLine();
                     // Use the actual source timestamps, not elapsed CPU time or a reconstructed window grid.
                     long origin = SourceFirstQpc;
@@ -293,6 +300,8 @@ namespace PolyHubNet
                             Number(r.AcceptanceDistanceRatio), Number(r.BackgroundLogOdds), Cell(r.IsRejected ? r.EogRejection.Reason : r.HasPrediction ? "" : "Not accepted") };
                         for (int k = 0; k < 8; k++) row.Add(k < r.ClassAcceptanceMargins.Length ? Number(r.ClassAcceptanceMargins[k]) : "");
                         for (int k = 0; k < Model.FeatureCount; k++) row.Add(k < r.Features.Length ? Number(r.Features[k]) : "");
+                        row.Add(Note(d.HeldNote).ToString());
+                        row.Add(d.Released ? "1" : "0");
                         writer.WriteLine(string.Join(",", row));
                     }
                     writer.WriteLine("# ConfusionColumns,Target,NoCommand,41,43,45,47,48,50,52,53");
@@ -309,7 +318,7 @@ namespace PolyHubNet
                         if (roc.Points.Count == 0) writer.WriteLine(prefix + ",,");
                         foreach (var point in roc.Points) writer.WriteLine(prefix + "," + Number(point.Item1) + "," + Number(point.Item2));
                     }
-                    writer.WriteLine("# Summary,Decisions," + Decisions.Count + ",Annotated," + AnnotatedDecisions + ",ScoredForAUC," + ScoredDecisions + ",CorrectDecisions," + CorrectDecisions + ",MacroAUCNotes," + Number(MacroAuc) + ",FirstSelectionAccuracy," + Number(FirstSelectionAccuracy) + ",MeanSelectionSeconds," + Number(MeanSelectionSeconds) + ",EstimatedITRBitsPerMinute," + Number(EstimatedItr));
+                    writer.WriteLine("# Summary,Decisions," + Decisions.Count + ",Annotated," + AnnotatedDecisions + ",ScoredForAUC," + ScoredDecisions + ",CorrectDecisions," + CorrectDecisions + ",MacroAUCNotes," + Number(MacroAuc) + ",FirstSelectionAccuracy," + Number(FirstSelectionAccuracy) + ",MeanSelectionSeconds," + Number(MeanSelectionSeconds) + ",EstimatedITRBitsPerMinute," + Number(EstimatedItr) + ",TargetAttempts," + TargetAttempts + ",SuccessfulAttempts," + SuccessfulAttempts + ",SuccessRate," + Number(SuccessRate));
                 }
                 if (File.Exists(path)) File.Replace(temporary, path, null); else File.Move(temporary, path);
             }

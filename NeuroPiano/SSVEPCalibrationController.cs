@@ -90,8 +90,7 @@ namespace NeuroPiano
         private int _previousActiveStimulusVisibleIndex;
         private int _previousAttentionCueVisibleIndex;
         private int _previousBackgroundCueVisibleIndex;
-        private int _previousFeedbackVisibleIndex;
-        private bool _previousManualInputEnabled;
+        private bool _previousPlayInputEnabled;
 
         private volatile bool _running;
         private bool _disposed;
@@ -191,11 +190,8 @@ namespace NeuroPiano
             _previousBackgroundCueVisibleIndex =
                 _keyboard.BackgroundCueVisibleIndex;
 
-            _previousFeedbackVisibleIndex =
-                _keyboard.FeedbackVisibleIndex;
-
-            _previousManualInputEnabled =
-                _keyboard.ManualInputEnabled;
+            _previousPlayInputEnabled =
+                _keyboard.PlayInputEnabled;
 
             _blockIndex = 0;
             _trialIndex = 0;
@@ -211,11 +207,10 @@ namespace NeuroPiano
 
             CreateBlockOrder(-1);
 
-            _keyboard.ReleaseCurrentKey();
-            _keyboard.ManualInputEnabled = false;
+            _keyboard.PlayInputEnabled = false;
             _keyboard.AttentionCueVisibleIndex = -1;
             _keyboard.BackgroundCueVisibleIndex = -1;
-            _keyboard.FeedbackVisibleIndex = -1;
+            _keyboard.SetCalibrationPressedKey(-1);
             _keyboard.ActiveStimulusVisibleIndex = -2;
 
             _running = true;
@@ -360,7 +355,7 @@ namespace NeuroPiano
                     if (!_currentTrialRejected)
                         _lastTarget = _currentTarget;
 
-                    _keyboard.FeedbackVisibleIndex = -1;
+                    _keyboard.SetCalibrationPressedKey(-1);
                     _keyboard.AttentionCueVisibleIndex = -1;
                     _keyboard.BackgroundCueVisibleIndex = -1;
                     SetInterTrialStimulusState();
@@ -430,7 +425,7 @@ namespace NeuroPiano
                 _currentTarget = _currentOrder[_trialIndex];
             }
 
-            _keyboard.FeedbackVisibleIndex = -1;
+            _keyboard.SetCalibrationPressedKey(-1);
             _keyboard.AttentionCueVisibleIndex =
                 _isBackgroundTrial ? -1 : _currentTarget;
             _keyboard.BackgroundCueVisibleIndex =
@@ -457,7 +452,7 @@ namespace NeuroPiano
             // в обучающую эпоху.
             _keyboard.AttentionCueVisibleIndex = -1;
             _keyboard.BackgroundCueVisibleIndex = -1;
-            _keyboard.FeedbackVisibleIndex = -1;
+            _keyboard.SetCalibrationPressedKey(-1);
 
             _keyboard.ActiveStimulusVisibleIndex =
                 _stimulusMode ==
@@ -494,20 +489,7 @@ namespace NeuroPiano
         {
             _keyboard.AttentionCueVisibleIndex = -1;
             _keyboard.BackgroundCueVisibleIndex = -1;
-            _keyboard.FeedbackVisibleIndex =
-                _currentTarget;
-
-            if (_stimulusMode ==
-                SSVEPCalibrationStimulusMode.AllTargets)
-            {
-                // Остальные клавиши продолжают мерцать. Целевая остаётся
-                // серой, потому что Feedback имеет приоритет в renderer.
-                _keyboard.ActiveStimulusVisibleIndex = -1;
-            }
-            else
-            {
-                _keyboard.ActiveStimulusVisibleIndex = -2;
-            }
+            _keyboard.SetCalibrationPressedKey(_currentTarget);
 
             State = SSVEPCalibrationState.Feedback;
 
@@ -524,7 +506,7 @@ namespace NeuroPiano
         {
             _keyboard.AttentionCueVisibleIndex = -1;
             _keyboard.BackgroundCueVisibleIndex = -1;
-            _keyboard.FeedbackVisibleIndex = -1;
+            _keyboard.SetCalibrationPressedKey(-1);
             SetInterTrialStimulusState();
 
             State = SSVEPCalibrationState.InterTrial;
@@ -547,7 +529,7 @@ namespace NeuroPiano
         {
             _keyboard.AttentionCueVisibleIndex = -1;
             _keyboard.BackgroundCueVisibleIndex = -1;
-            _keyboard.FeedbackVisibleIndex = -1;
+            _keyboard.SetCalibrationPressedKey(-1);
             _keyboard.ActiveStimulusVisibleIndex = -2;
 
             State = SSVEPCalibrationState.BlockRest;
@@ -699,14 +681,13 @@ namespace NeuroPiano
             _keyboard.BackgroundCueVisibleIndex =
                 _previousBackgroundCueVisibleIndex;
 
-            _keyboard.FeedbackVisibleIndex =
-                _previousFeedbackVisibleIndex;
+            _keyboard.SetCalibrationPressedKey(-1);
 
             _keyboard.ActiveStimulusVisibleIndex =
                 _previousActiveStimulusVisibleIndex;
 
-            _keyboard.ManualInputEnabled =
-                _previousManualInputEnabled;
+            _keyboard.PlayInputEnabled =
+                _previousPlayInputEnabled;
         }
 
         public void Dispose()

@@ -17,25 +17,19 @@ Three settings are added to `NeuroPiano.json` on startup:
   target epochs separately for each of the seven other keys.
 - `CovertCalibrationNeutralDurationMs`: 2500 by default.
 
-Each attempt first shows the existing Cue frame on the start key, with all
-eight keys flickering. When the frame disappears, the start key turns gray,
-stops flickering and sounds simultaneously. After the existing Settling
-duration, a neutral epoch is recorded. Keep looking at the start key; the
-other seven keys flicker throughout Neutral, Cue, Settling and Stimulus.
-Each attempt records a neutral epoch before the
-lateral target Cue. After neutral validation, the controller waits for the
-existing `SSVEPCalibrationBackgroundInterTrialDurationMs`, keeping the start
-key gray and the other seven keys flickering. Then Cue uses the existing
-target frame. The frame disappears before Settling; the later Stimulus has target
-START/END markers. Once PolyHub accepts the target epoch, the lateral key
-turns gray, stops flickering and sounds; the start key resumes flickering.
-The lateral key stays gray through Feedback and InterTrial. At the next
-attempt, Cue returns to the start key; at Cue onset all eight keys flicker
-again, and at Cue disappearance the start key turns gray and sounds again.
-Rejected epochs skip target Feedback and repeat the same pair from the start
-key Cue. Existing baseline, Cue, Settling, Stimulus, Feedback, InterTrial and
-BlockRest timings are reused. Each round presents all seven directed pairs
-from the anchor in shuffled order.
+Each attempt starts with a red Cue on the start key and all eight keys
+flickering. When the frame disappears, the start key presses and sounds.
+Keep looking at it through Settling and the marked neutral epoch. After
+`SSVEPCalibrationBackgroundInterTrialDurationMs`, the green Cue identifies the
+lateral target. Its frame disappears before Settling, followed by the marked
+target Stimulus epoch. All eight keys continue flickering.
+
+After the target END marker, the start key releases and the lateral key
+presses. Its red frame signals that the participant may look at it. The
+lateral key stays pressed through Feedback and InterTrial. If rejection is
+already known, the target sound is skipped and the same pair is retried.
+The next start-key Cue releases the lateral key. Each round presents all
+seven directed pairs from the anchor in shuffled order.
 
 PolyHub uses the existing Covert Attention EOG profile and its HEOG/VEOG toggles.
 Its Calbr1/Calbr2 buttons send the existing start commands 2001/2006; Stop1/Stop2
@@ -165,7 +159,7 @@ For each target:
 - Cue: target frame, 500 ms, no PolyHub epoch event.
 - Settling: frame removed; the final SSVEP visual mode is already active, 500 ms, no event.
 - Stimulus: no visual transition at onset; only here are the PolyHub grouped events emitted (`State=1` start, `State=2` end), default 1500 ms.
-- Feedback: target becomes gray and sounds; it starts only after the SSVEP end marker.
+- Feedback: after the SSVEP end marker the target presses and sounds. The configured flicker continues through Feedback.
 
 Only stimulus intervals are published as calibration epochs. Keys keep classes `1201..1208`.
 `SSVEPCalibrationStimulusMode = 0` flickers only the target; `1` flickers all eight targets.
@@ -177,7 +171,7 @@ then bottom left-to-right. Their thin white frames are always static.
 Background Cue uses the same inset, color and thickness as the key Cue.
 After Cue, the object returns to its original white frame; Settling is unmarked.
 Then a START/END pair delimits the background epoch, followed by an InterTrial pause.
-Background trials have no note sound or gray-key Feedback.
+Background trials proceed directly from Stimulus to InterTrial.
 
 Each block contains all eight keys once, each followed by one background epoch:
 key, background, key, background, including the background after the last key.

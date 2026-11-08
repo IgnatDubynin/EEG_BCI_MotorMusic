@@ -34,6 +34,50 @@ namespace PolyHubNet
         public long Reserved0;
     }
 
+    // PHS v3 appends Gaze Selection and Covert Attention after the v2 metadata.
+    [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    internal struct SessionEogRejectionProfile
+    {
+        internal const int Bytes = sizeof(int) + 2 * sizeof(double);
+        private int _enabledChannels; // VEOG in bit 0 and HEOG in bit 1.
+        private double _veogThresholdMicrovolts;
+        private double _heogThresholdMicrovolts;
+
+        internal SessionEogRejectionProfile(EogRejectionProfileSettings profile)
+        {
+            if (profile == null) throw new ArgumentNullException(nameof(profile));
+            _enabledChannels = (profile.VeogEnabled ? 1 : 0) | (profile.HeogEnabled ? 2 : 0);
+            _veogThresholdMicrovolts = profile.VeogPeakToPeakThresholdMicrovolts;
+            _heogThresholdMicrovolts = profile.HeogFixationDeviationThresholdMicrovolts;
+            Validate();
+        }
+
+        internal EogRejectionProfileSettings Decode()
+        {
+            Validate();
+            return new EogRejectionProfileSettings
+            {
+                VeogEnabled = (_enabledChannels & 1) != 0,
+                HeogEnabled = (_enabledChannels & 2) != 0,
+                VeogPeakToPeakThresholdMicrovolts = _veogThresholdMicrovolts,
+                HeogFixationDeviationThresholdMicrovolts = _heogThresholdMicrovolts
+            };
+        }
+
+        private void Validate()
+        {
+            if ((_enabledChannels & ~3) != 0 ||
+                !ValidThreshold(_veogThresholdMicrovolts) || !ValidThreshold(_heogThresholdMicrovolts))
+                throw new InvalidDataException("Invalid session EOG rejection profile.");
+        }
+
+        private static bool ValidThreshold(double value)
+        {
+            return value >= EogRejectionProfileSettings.MinimumThresholdMicrovolts &&
+                value <= EogRejectionProfileSettings.MaximumThresholdMicrovolts;
+        }
+    }
+
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
     public struct SessionRecordHeader
     {
@@ -75,7 +119,6 @@ namespace PolyHubNet
     public sealed class SessionRecorder : IDisposable
     {
         private const int MagicValue = 0x50485358; // PHSX
-        private const int VersionValue = 2;
 
         private const int ChannelNameCharCapacity = 32;
         private const int ChannelNameBytes = ChannelNameCharCapacity * sizeof(char);
@@ -221,6 +264,14 @@ namespace PolyHubNet
         public void StartSession(string filePath, string[] channelNames, int sampleRate,
             long qpcFrequency, long initialFileBytes, long growStepBytes, SignalAcquisitionInfo acquisitionInfo)
         {
+            StartSession(filePath, channelNames, sampleRate, qpcFrequency,
+                initialFileBytes, growStepBytes, acquisitionInfo, null);
+        }
+
+        public void StartSession(string filePath, string[] channelNames, int sampleRate,
+            long qpcFrequency, long initialFileBytes, long growStepBytes, SignalAcquisitionInfo acquisitionInfo,
+            EogRejectionSettings eogSettings)
+        {
             StopSession();
 
             if (string.IsNullOrWhiteSpace(filePath))
@@ -261,10 +312,14 @@ namespace PolyHubNet
             int channelCount = channelNames.Length;
             var acquisitionHeader = SignalAcquisitionInfo.Encode(acquisitionInfo, channelCount, sampleRate);
 
-            long dataStartOffset =
+            bool hasEogSettings = eogSettings != null;
+            var gazeProfile = hasEogSettings ? new SessionEogRejectionProfile(eogSettings.GazeSelection) : default(SessionEogRejectionProfile);
+            var covertProfile = hasEogSettings ? new SessionEogRejectionProfile(eogSettings.CovertAttention) : default(SessionEogRejectionProfile);
+            long eogSettingsOffset =
                 _fileHeaderSize + SignalAcquisitionInfo.HeaderBytes +
                 ((long)channelCount + acquisitionHeader.ReferenceCount) * ChannelNameBytes +
                 (long)acquisitionHeader.PhysicalInputCount * SignalAcquisitionInfo.PhysicalInputBytes;
+            long dataStartOffset = eogSettingsOffset + (hasEogSettings ? 2 * SessionEogRejectionProfile.Bytes : 0);
 
             lock (_ioSync)
             {
@@ -295,7 +350,7 @@ namespace PolyHubNet
                 _header = new SessionFileHeader
                 {
                     Magic = MagicValue,
-                    Version = VersionValue,
+                    Version = hasEogSettings ? 3 : 2,
                     ChannelCount = channelCount,
                     SampleRate = sampleRate,
                     QpcFrequency = qpcFrequency,
@@ -322,6 +377,11 @@ namespace PolyHubNet
                 SignalAcquisitionInfo.WritePhysicalInputs(_accessor,
                     _fileHeaderSize + SignalAcquisitionInfo.HeaderBytes + ((long)channelCount + acquisitionHeader.ReferenceCount) * ChannelNameBytes,
                     acquisitionInfo != null ? acquisitionInfo.PhysicalInputs : null);
+                if (hasEogSettings)
+                {
+                    _accessor.Write(eogSettingsOffset, ref gazeProfile);
+                    _accessor.Write(eogSettingsOffset + SessionEogRejectionProfile.Bytes, ref covertProfile);
+                }
                 _accessor.Flush();
 
                 _writePosition = _header.DataStartOffset;

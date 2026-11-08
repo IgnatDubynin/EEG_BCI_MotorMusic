@@ -31,8 +31,8 @@ namespace NeuroPiano
         private readonly long _frequency;
         private long _deadline, _neutralEnd, _stimulusEnd;
         private int _anchor, _target, _position, _round, _transitionPending;
-        private int _savedActive, _savedCue, _savedBackground, _savedFeedback;
-        private bool _savedManual, _savedPeripheralCue, _retry, _disposed;
+        private int _savedActive, _savedCue, _savedBackground;
+        private bool _savedPlayInput, _savedPeripheralCue, _retry, _disposed;
         private volatile bool _running;
 
         [DllImport("kernel32.dll")]
@@ -89,17 +89,15 @@ namespace NeuroPiano
             _savedCue = _keyboard.AttentionCueVisibleIndex;
             _savedPeripheralCue = _keyboard.AttentionCueIsPeripheral;
             _savedBackground = _keyboard.BackgroundCueVisibleIndex;
-            _savedFeedback = _keyboard.FeedbackVisibleIndex;
-            _savedManual = _keyboard.ManualInputEnabled;
+            _savedPlayInput = _keyboard.PlayInputEnabled;
             _round = _position = 0;
             _neutralEnd = _stimulusEnd = 0;
             _retry = false;
             CreateOrder();
-            _keyboard.ReleaseCurrentKey();
-            _keyboard.ManualInputEnabled = false;
+            _keyboard.PlayInputEnabled = false;
             _keyboard.AttentionCueVisibleIndex = -1;
             _keyboard.BackgroundCueVisibleIndex = -1;
-            _keyboard.FeedbackVisibleIndex = -1;
+            _keyboard.SetCalibrationPressedKey(-1);
             _keyboard.ActiveStimulusVisibleIndex = -2;
             _running = true;
             long now = Now();
@@ -155,7 +153,7 @@ namespace NeuroPiano
             _keyboard.AttentionCueIsPeripheral = false;
             _keyboard.AttentionCueVisibleIndex = _anchor;
             _keyboard.BackgroundCueVisibleIndex = -1;
-            _keyboard.FeedbackVisibleIndex = -1;
+            _keyboard.SetCalibrationPressedKey(-1);
             _keyboard.ActiveStimulusVisibleIndex = -1;
             State = CovertCalibrationState.AnchorCue;
             Deadline(now, _settings.SSVEPCalibrationCueDurationMs);
@@ -172,7 +170,7 @@ namespace NeuroPiano
                     break;
                 case CovertCalibrationState.AnchorCue:
                     _keyboard.AttentionCueVisibleIndex = -1;
-                    _keyboard.FeedbackVisibleIndex = _anchor;
+                    _keyboard.SetCalibrationPressedKey(_anchor);
                     long anchorCueOff = Now();
                     State = CovertCalibrationState.AnchorSettling;
                     Deadline(anchorCueOff, _settings.SSVEPCalibrationSettlingDurationMs);
@@ -224,7 +222,7 @@ namespace NeuroPiano
                     // The EEG epoch is closed: the red cue now permits looking at this note.
                     _keyboard.AttentionCueIsPeripheral = false;
                     _keyboard.AttentionCueVisibleIndex = _target;
-                    _keyboard.FeedbackVisibleIndex = _target;
+                    _keyboard.SetCalibrationPressedKey(_target);
                     Deadline(stimulusEndNow, _settings.SSVEPCalibrationCueDurationMs);
                     if (!_retry)
                     {
@@ -254,7 +252,7 @@ namespace NeuroPiano
                             CreateOrder();
                             _keyboard.AttentionCueVisibleIndex = -1;
                             _keyboard.BackgroundCueVisibleIndex = -1;
-                            _keyboard.FeedbackVisibleIndex = -1;
+                            _keyboard.SetCalibrationPressedKey(-1);
                             _keyboard.ActiveStimulusVisibleIndex = -2;
                             State = CovertCalibrationState.BlockRest;
                             Deadline(Now(), _settings.SSVEPCalibrationBlockRestDurationMs);
@@ -291,8 +289,8 @@ namespace NeuroPiano
             _keyboard.AttentionCueIsPeripheral = _savedPeripheralCue;
             _keyboard.AttentionCueVisibleIndex = _savedCue;
             _keyboard.BackgroundCueVisibleIndex = _savedBackground;
-            _keyboard.FeedbackVisibleIndex = _savedFeedback;
-            _keyboard.ManualInputEnabled = _savedManual;
+            _keyboard.SetCalibrationPressedKey(-1);
+            _keyboard.PlayInputEnabled = _savedPlayInput;
         }
 
         private void Send(int state, int code, int value, long qpc)

@@ -1372,9 +1372,6 @@ namespace ActiChamp
             if (!savedEnabled.TryGetValue(key, out enabled))
                 enabled = true;
 
-            if (IsEogChannelType(type))
-                enabled = true;
-
             bool isReference = false;
             if (string.Equals(type, ChannelTypeEeg, StringComparison.OrdinalIgnoreCase))
                 savedReference.TryGetValue(key, out isReference);
@@ -1525,7 +1522,6 @@ namespace ActiChamp
             bool isAux = string.Equals(type, ChannelTypeAux, StringComparison.OrdinalIgnoreCase);
             bool isEog = IsEogChannelType(type);
 
-            DataGridViewCell useCell = row.Cells[ChannelColumnUseIndex];
             DataGridViewCell refCell = row.Cells[ChannelColumnRefIndex];
             DataGridViewCell typeCell = row.Cells[ChannelColumnTypeIndex];
 
@@ -1533,11 +1529,6 @@ namespace ActiChamp
 
             if (isEog)
             {
-                useCell.Value = true;
-                useCell.ReadOnly = true;
-                useCell.Style.BackColor = SystemColors.Control;
-                useCell.ToolTipText = "EOG source channels are always used.";
-
                 refCell.Value = false;
                 refCell.ReadOnly = true;
                 refCell.Style.BackColor = SystemColors.Control;
@@ -1546,10 +1537,6 @@ namespace ActiChamp
             }
             else if (isAux)
             {
-                useCell.ReadOnly = false;
-                useCell.Style.BackColor = SystemColors.Window;
-                useCell.ToolTipText = string.Empty;
-
                 refCell.Value = false;
                 refCell.ReadOnly = true;
                 refCell.Style.BackColor = SystemColors.Control;
@@ -1558,10 +1545,6 @@ namespace ActiChamp
             }
             else
             {
-                useCell.ReadOnly = false;
-                useCell.Style.BackColor = SystemColors.Window;
-                useCell.ToolTipText = string.Empty;
-
                 refCell.ReadOnly = false;
                 refCell.Style.BackColor = SystemColors.Window;
                 refCell.Style.ForeColor = SystemColors.ControlText;
@@ -1591,9 +1574,6 @@ namespace ActiChamp
                 bool enabled = Convert.ToBoolean(
                     row.Cells[ChannelColumnUseIndex].Value ?? false,
                     CultureInfo.InvariantCulture);
-
-                if (IsEogChannelType(type))
-                    enabled = true;
 
                 bool isReference = string.Equals(type, ChannelTypeEeg, StringComparison.OrdinalIgnoreCase) &&
                     Convert.ToBoolean(
@@ -1632,7 +1612,7 @@ namespace ActiChamp
             List<int> referenceIndices = new List<int>();
             List<string> eegNames = new List<string>();
             List<string> auxNames = new List<string>();
-            int[] eogIndices = new int[] { -1, -1, -1, -1 };
+            int[] eogIndices = GetEnabledEogPhysicalChannelIndices(eegCount, validateAssignments: true);
 
             selectedEegCount = 0;
             selectedEogCount = 0;
@@ -1652,11 +1632,8 @@ namespace ActiChamp
                 int eogRoleIndex = GetEogRoleIndex(type);
                 if (eogRoleIndex >= 0)
                 {
-                    if (rawIndex >= eegCount)
-                        throw new InvalidOperationException("EOG role can be assigned only to a physical EEG channel.");
-
-                    eogIndices[eogRoleIndex] = rawIndex;
-                    acquisitionIndices.Add(rawIndex);
+                    if (eogIndices[eogRoleIndex] == rawIndex)
+                        acquisitionIndices.Add(rawIndex);
                     continue;
                 }
 
@@ -1690,8 +1667,6 @@ namespace ActiChamp
                 }
             }
 
-            ValidateEogPairs(eogIndices);
-
             List<string> names = new List<string>(selectedEegCount + 2 + selectedAuxCount);
             names.AddRange(eegNames);
 
@@ -1715,18 +1690,56 @@ namespace ActiChamp
             return acquisitionIndices.ToArray();
         }
 
-        private static void ValidateEogPairs(int[] eogIndices)
+        private int[] GetEnabledEogPhysicalChannelIndices(int eegCount, bool validateAssignments)
         {
-            bool hasHeogLeft = eogIndices[ActiChampController.EogHeogLeftIndex] >= 0;
-            bool hasHeogRight = eogIndices[ActiChampController.EogHeogRightIndex] >= 0;
-            bool hasVeogUp = eogIndices[ActiChampController.EogVeogUpIndex] >= 0;
-            bool hasVeogDown = eogIndices[ActiChampController.EogVeogDownIndex] >= 0;
+            int[] assigned = new int[] { -1, -1, -1, -1 };
+            int[] enabled = new int[] { -1, -1, -1, -1 };
 
-            if (hasHeogLeft != hasHeogRight)
-                throw new InvalidOperationException("HEOG requires both HEOG-L and HEOG-R channels.");
+            foreach (DataGridViewRow row in dgvChannels.Rows)
+            {
+                int rawIndex = row.Tag is int ? (int)row.Tag : -1;
+                if (rawIndex < 0)
+                    continue;
 
-            if (hasVeogUp != hasVeogDown)
-                throw new InvalidOperationException("VEOG requires both VEOG-U and VEOG-D channels.");
+                string type = Convert.ToString(
+                    row.Cells[ChannelColumnTypeIndex].Value,
+                    CultureInfo.InvariantCulture);
+                int role = GetEogRoleIndex(type);
+                if (role < 0)
+                    continue;
+
+                if (rawIndex >= eegCount)
+                {
+                    if (validateAssignments)
+                        throw new InvalidOperationException("EOG role can be assigned only to a physical EEG channel.");
+                    continue;
+                }
+
+                assigned[role] = rawIndex;
+                enabled[role] = Convert.ToBoolean(
+                    row.Cells[ChannelColumnUseIndex].Value ?? false,
+                    CultureInfo.InvariantCulture) ? rawIndex : -1;
+            }
+
+            const int left = ActiChampController.EogHeogLeftIndex;
+            const int right = ActiChampController.EogHeogRightIndex;
+            const int up = ActiChampController.EogVeogUpIndex;
+            const int down = ActiChampController.EogVeogDownIndex;
+
+            if (validateAssignments)
+            {
+                if ((assigned[left] >= 0) != (assigned[right] >= 0))
+                    throw new InvalidOperationException("HEOG requires both HEOG-L and HEOG-R channels.");
+                if ((assigned[up] >= 0) != (assigned[down] >= 0))
+                    throw new InvalidOperationException("VEOG requires both VEOG-U and VEOG-D channels.");
+            }
+
+            if (enabled[left] < 0 || enabled[right] < 0)
+                enabled[left] = enabled[right] = -1;
+            if (enabled[up] < 0 || enabled[down] < 0)
+                enabled[up] = enabled[down] = -1;
+
+            return enabled;
         }
 
         private void RefreshSelectedChannelStateFromGrid()
@@ -1734,13 +1747,11 @@ namespace ActiChamp
             if (dgvChannels == null)
                 return;
 
-            CommitChannelGridEdit();
-
             List<int> acquisitionIndices = new List<int>();
             List<int> referenceIndices = new List<int>();
             List<string> eegNames = new List<string>();
             List<string> auxNames = new List<string>();
-            int[] eogIndices = new int[] { -1, -1, -1, -1 };
+            int[] eogIndices = GetEnabledEogPhysicalChannelIndices(_physicalEegChannelsCount, validateAssignments: false);
             int selectedEegCount = 0;
             int selectedAuxCount = 0;
 
@@ -1758,8 +1769,8 @@ namespace ActiChamp
                 int eogRoleIndex = GetEogRoleIndex(type);
                 if (eogRoleIndex >= 0)
                 {
-                    eogIndices[eogRoleIndex] = rawIndex;
-                    acquisitionIndices.Add(rawIndex);
+                    if (eogIndices[eogRoleIndex] == rawIndex)
+                        acquisitionIndices.Add(rawIndex);
                     continue;
                 }
 
@@ -1797,15 +1808,13 @@ namespace ActiChamp
             names.AddRange(eegNames);
 
             int selectedEogCount = 0;
-            if (eogIndices[ActiChampController.EogHeogLeftIndex] >= 0 &&
-                eogIndices[ActiChampController.EogHeogRightIndex] >= 0)
+            if (eogIndices[ActiChampController.EogHeogLeftIndex] >= 0)
             {
                 names.Add("HEOG");
                 selectedEogCount++;
             }
 
-            if (eogIndices[ActiChampController.EogVeogUpIndex] >= 0 &&
-                eogIndices[ActiChampController.EogVeogDownIndex] >= 0)
+            if (eogIndices[ActiChampController.EogVeogUpIndex] >= 0)
             {
                 names.Add("VEOG");
                 selectedEogCount++;
@@ -1875,18 +1884,14 @@ namespace ActiChamp
 
         private void SetAllChannelRowsEnabled(bool enabled)
         {
+            CommitChannelGridEdit();
+
             _updatingChannelGrid = true;
             try
             {
                 for (int i = 0; i < dgvChannels.Rows.Count; i++)
                 {
-                    DataGridViewRow row = dgvChannels.Rows[i];
-                    string type = Convert.ToString(
-                        row.Cells[ChannelColumnTypeIndex].Value,
-                        CultureInfo.InvariantCulture);
-
-                    row.Cells[ChannelColumnUseIndex].Value =
-                        IsEogChannelType(type) ? true : enabled;
+                    dgvChannels.Rows[i].Cells[ChannelColumnUseIndex].Value = enabled;
                 }
             }
             finally
@@ -1895,6 +1900,7 @@ namespace ActiChamp
             }
 
             RefreshSelectedChannelStateFromGrid();
+            dgvChannels.Invalidate();
         }
 
         private void dgvChannels_CurrentCellDirtyStateChanged(object sender, EventArgs e)
@@ -1935,18 +1941,20 @@ namespace ActiChamp
                 {
                     _updatingChannelGrid = false;
                 }
-
-                RefreshSelectedChannelStateFromGrid();
-                return;
             }
-
-            if (e.ColumnIndex == ChannelColumnUseIndex ||
+            else if (e.ColumnIndex == ChannelColumnUseIndex ||
                 e.ColumnIndex == ChannelColumnRefIndex ||
                 e.ColumnIndex == ChannelColumnNameIndex)
             {
                 NormalizeChannelNameCell(e.RowIndex);
-                RefreshSelectedChannelStateFromGrid();
             }
+            else
+            {
+                return;
+            }
+
+            RefreshSelectedChannelStateFromGrid();
+            dgvChannels.InvalidateRow(e.RowIndex);
         }
 
         private string GetChannelNameFromRow(DataGridViewRow row)
